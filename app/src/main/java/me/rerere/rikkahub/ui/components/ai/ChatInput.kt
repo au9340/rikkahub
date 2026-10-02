@@ -19,16 +19,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -36,14 +37,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -70,7 +69,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogProperties
 import com.dokar.sonner.ToastType
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
@@ -93,7 +91,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.Fullscreen
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.BackgroundEffectType
@@ -168,6 +165,11 @@ fun ChatInput(
         bottomEnd = themeShape.bottomEnd,
         bottomStart = themeShape.bottomStart,
     )
+    // 底栏整体只圆上方两角：它一直贴到屏幕底部，圆下方两角会在屏幕底边露出背景
+    val bottomBarShape = RoundedCornerShape(
+        topStart = themeShape.topStart,
+        topEnd = themeShape.topEnd,
+    )
     val modelListState = rememberModelListState(
         modelId = assistant.chatModelId ?: settings.chatModelId,
         providers = settings.providers,
@@ -218,12 +220,16 @@ fun ChatInput(
     }
 
     Surface(
-        color = Color.Transparent,
+        // 底栏不再透明：insets 区域（导航栏条 / 键盘上方）也有底色，
+        // 聊天列表的文字滚到输入框底下时不会透出来
+        color = hazeTintColor,
+        shape = bottomBarShape,
     ) {
         Column(
             modifier = modifier
-                .imePadding()
-                .navigationBarsPadding()
+                // ime 与导航栏取并集：键盘弹起时 ime 已含导航栏高度，
+                // 再叠一次 navigationBarsPadding() 会多出一段空隙
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
                 .padding(horizontal = 8.dp)
                 .padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -265,7 +271,6 @@ fun ChatInput(
                     ),
                 shape = containerShape,
                 tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else hazeTintColor,
             ) {
                 Column(
@@ -519,7 +524,6 @@ private fun TextInputRow(
         }
 
         var isFocused by remember { mutableStateOf(false) }
-        var isFullScreen by remember { mutableStateOf(false) }
         var completionList by remember { mutableStateOf<ChatCompletionList?>(null) }
         val receiveContentListener = remember(
             settings.displaySetting.pasteLongTextAsFile, settings.displaySetting.pasteLongTextThreshold
@@ -636,32 +640,12 @@ private fun TextInputRow(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,
             ),
-            trailingIcon = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (isFocused) {
-                        IconButton(
-                            onClick = {
-                                isFullScreen = !isFullScreen
-                            }) {
-                            Icon(HugeIcons.Fullscreen, null)
-                        }
-                    }
-                }
-            },
             leadingIcon = if (quickMessages.isNotEmpty()) {
                 {
                     QuickMessageButton(quickMessages = quickMessages, state = state)
                 }
             } else null,
         )
-        if (isFullScreen) {
-            FullScreenEditor(state = state) {
-                isFullScreen = false
-            }
-        }
     }
 }
 
@@ -788,71 +772,6 @@ private fun QuickMessageButton(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FullScreenEditor(
-    state: ChatInputState, onDone: () -> Unit
-) {
-    BasicAlertDialog(
-        onDismissRequest = {
-            onDone()
-        },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false, decorFitsSystemWindows = false
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .safeDrawingPadding()
-                .imePadding(),
-            verticalArrangement = Arrangement.Bottom
-        ) {
-            Surface(
-                modifier = Modifier
-                    .widthIn(max = 800.dp)
-                    .fillMaxHeight(0.9f),
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .fillMaxSize(),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row {
-                        TextButton(
-                            onClick = {
-                                onDone()
-                            }) {
-                            Text(stringResource(R.string.chat_page_save))
-                        }
-                    }
-                    TextField(
-                        state = state.textContent,
-                        modifier = Modifier
-                            .padding(bottom = 2.dp)
-                            .fillMaxSize(),
-                        shape = RoundedCornerShape(32.dp),
-                        placeholder = {
-                            Text(stringResource(R.string.chat_input_placeholder))
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Sentences,
-                        ),
-                        colors = TextFieldDefaults.colors().copy(
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                        ),
-                    )
                 }
             }
         }
