@@ -620,7 +620,7 @@ private fun TextInputRow(
             placeholder = {
                 Text(stringResource(R.string.chat_input_placeholder))
             },
-            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 3),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
                 imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
