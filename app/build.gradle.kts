@@ -9,12 +9,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.google.services)
-    alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.baselineprofile)
 }
 
 android {
+    // namespace 保持上游不变：它决定 R 类与源码的包路径，
+    // 改了要连带重命名所有 Kotlin 包，与「避免冲突」无关。
+    // 真正决定安装冲突的是下面的 applicationId。
     namespace = "me.rerere.rikkahub"
     compileSdk {
         version = release(37) {
@@ -23,7 +24,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "me.rerere.rikkahub"
+        // 与原版 RikkaHub 区分开，两个 App 可以同时安装
+        applicationId = "com.chathub.app"
         minSdk = 26
         targetSdk = 37
         versionCode = 191
@@ -178,11 +180,6 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.androidx.material3.adaptive.navigation3)
-
-    // Firebase
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.crashlytics)
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
