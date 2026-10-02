@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release 构建专用的资源覆盖：把应用名改成 ChatHub。
+  只声明 app_name，其余字符串仍然来自 src/main。
+-->
+<resources>
+  <string name="app_name">ChatHub</string>
+</resources>
