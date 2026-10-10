@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -62,6 +63,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -229,18 +232,31 @@ fun ChatInput(
         }
     }
 
-    // 底部渐变遮罩：从输入区顶部一直过渡到屏幕底部（键盘弹出时到键盘上沿），避免消息透到系统导航栏
+    // 底部渐变遮罩：从输入区顶部渐变到输入框底边，再往下铺纯色。
+    // 输入框底边以下还有 8dp 内边距和系统导航栏（键盘弹出时导航栏不可见，inset 归 0），
+    // 渐变必须在这条线之前就完全不透明，否则滚到那里的消息仍会透出来（导航栏透字）
     val scrimColor = MaterialTheme.colorScheme.background
     val imeInsets = WindowInsets.ime
+    val navigationBarsInsets = WindowInsets.navigationBars
     Surface(
         color = Color.Transparent,
         modifier = Modifier.drawWithCache {
+            val bottomGap = navigationBarsInsets.getBottom(this) + 8.dp.toPx()
+            val solidStartY = (size.height - imeInsets.getBottom(this) - bottomGap).coerceAtLeast(1f)
             val brush = Brush.verticalGradient(
                 colors = listOf(scrimColor.copy(alpha = 0f), scrimColor),
                 startY = 0f,
-                endY = (size.height - imeInsets.getBottom(this)).coerceAtLeast(1f),
+                endY = solidStartY,
             )
-            onDrawBehind { drawRect(brush) }
+            onDrawBehind {
+                drawRect(brush)
+                // 输入框下方到屏幕底部（键盘弹出时到键盘上沿）之间补一层纯色，彻底盖住底下的消息
+                drawRect(
+                    color = scrimColor,
+                    topLeft = Offset(0f, solidStartY),
+                    size = Size(size.width, (size.height - solidStartY).coerceAtLeast(0f)),
+                )
+            }
         },
     ) {
         Column(
