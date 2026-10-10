@@ -103,14 +103,11 @@ internal fun FilesPicker(
     onDismiss: () -> Unit,
     onTakePic: () -> Unit,
     onPickImage: () -> Unit,
-    onPickVideo: () -> Unit,
-    onPickAudio: () -> Unit,
     onPickFile: () -> Unit,
     onSketch: () -> Unit,
     onStartVoiceMode: (() -> Unit)? = null,
 ) {
     val settings = LocalSettings.current
-    val provider = chatModel?.findProvider(providers = settings.providers)
     val navController = LocalNavController.current
     val workspaceRepository: WorkspaceRepository = koinInject()
     val workspaces by workspaceRepository.listFlow().collectAsState(initial = emptyList())
@@ -163,15 +160,12 @@ internal fun FilesPicker(
                     .padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // 视频 / 音频入口已按「不要视频」拿掉，相册走自建选择器
                 AttachmentGrid(
                     actions = buildList {
                         add(AttachmentAction(HugeIcons.Camera01, R.string.take_picture, onTakePic))
                         add(AttachmentAction(HugeIcons.Image02, R.string.photo, onPickImage))
                         add(AttachmentAction(HugeIcons.PaintBoard, R.string.sketch, onSketch))
-                        if (provider != null && provider is ProviderSetting.Google) {
-                            add(AttachmentAction(HugeIcons.Video01, R.string.video, onPickVideo))
-                            add(AttachmentAction(HugeIcons.MusicNote03, R.string.audio, onPickAudio))
-                        }
                         add(AttachmentAction(HugeIcons.Files02, R.string.upload_file, onPickFile))
                         onStartVoiceMode?.let { start ->
                             add(AttachmentAction(HugeIcons.Voice, R.string.chat_page_voice_title, start))

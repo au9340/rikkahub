@@ -398,6 +398,8 @@ private fun ChatPageContent(
                     onMoreClick = {
                         showFilesSheet = true
                     },
+                    // 空输入时右侧按钮是加号，点一下直接开自建相册
+                    onPickImage = attachmentPickerActions.onPickImage,
                 )
             },
             containerColor = Color.Transparent,
@@ -544,8 +546,6 @@ private fun ChatFilesPickerSheet(
             onDismiss = { dismissAll() },
             onTakePic = attachmentPickerActions.onTakePicture,
             onPickImage = attachmentPickerActions.onPickImage,
-            onPickVideo = attachmentPickerActions.onPickVideo,
-            onPickAudio = attachmentPickerActions.onPickAudio,
             onPickFile = attachmentPickerActions.onPickFile,
             onSketch = attachmentPickerActions.onSketch,
             onStartVoiceMode = if (
