@@ -99,7 +99,12 @@ internal fun PhotoPickerPage(
             decorFitsSystemWindows = false,
         ),
     ) {
-        Surface(modifier = Modifier.fillMaxSize()) {
+        // decorFitsSystemWindows = false 会让对话框画到状态栏底下，顶栏必须自己垫 safeDrawingPadding
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding(),
+        ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier
