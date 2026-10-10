@@ -10,6 +10,10 @@ plugins {
     alias(libs.plugins.baselineprofile)
 }
 
+// 构建编号：CI 把 GitHub 运行编号传进来，versionCode / versionName 在仓库默认值上叠加。
+// 这样每次构建的版本号都比上一次大，手机上直接覆盖安装即可，不用先卸载重装
+val buildNumber = providers.gradleProperty("rikkaBuildNumber").orNull?.toIntOrNull() ?: 0
+
 android {
     namespace = "me.rerere.rikkahub"
     compileSdk {
@@ -23,8 +27,8 @@ android {
         applicationId = "com.au.rikkahub"
         minSdk = 26
         targetSdk = 37
-        versionCode = 191
-        versionName = "2.5.6"
+        versionCode = 191 + buildNumber
+        versionName = "2.5.6" + (if (buildNumber > 0) "+build$buildNumber" else "")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
