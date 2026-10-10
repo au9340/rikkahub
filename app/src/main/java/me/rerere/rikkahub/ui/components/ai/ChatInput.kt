@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
@@ -113,8 +114,6 @@ import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Files02
 import me.rerere.hugeicons.stroke.Fullscreen
-import me.rerere.hugeicons.stroke.Image02
-import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
@@ -249,12 +248,6 @@ fun ChatInput(
     val quickMessages = remember(settings.quickMessages, assistant.quickMessageIds) {
         settings.getQuickMessagesOfAssistant(assistant)
     }
-    // 输入行里的图片 / 文件入口
-    val attachmentPickerActions = rememberChatAttachmentPickerActions(
-        inputState = state,
-        setting = settings,
-        onAttachmentAdded = {},
-    )
 
     // 底部渐变遮罩：从输入区顶部渐变到输入框底边，再往下铺纯色。
     // 输入框底边以下还有 8dp 内边距和系统导航栏（键盘弹出时导航栏不可见，inset 归 0），
@@ -318,144 +311,148 @@ fun ChatInput(
                 onResume = onResumeMessageQueue,
             )
 
-            // 功能栏：自下往上第二行。键盘弹起时整行收起，只留最底部的输入行。
-            // 这里必须在渐变还没到全不透明的高度上自带一块不透明底色，否则消息会透出来
-            AnimatedVisibility(
-                visible = !keyboardExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut(),
-            ) {
-                Surface(
-                    color = scrimColor,
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxWidth(),
+            // 功能栏和输入行必须贴在一起：两者之间如果留成透明缝，滚动的消息就会从缝里透出来
+            Column {
+                // 功能栏：自下往上第二行。键盘弹起时整行收起，只留最底部的输入行。
+                // 它自带一层不透明底色（底部渐变在这里还没到全不透明，光靠渐变挡不住消息）
+                AnimatedVisibility(
+                    visible = !keyboardExpanded,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
                 ) {
-                    InputFunctionBar(
-                        modelListState = modelListState,
-                        settings = settings,
-                        assistant = assistant,
-                        chatModel = chatModel,
-                        onUpdateSearchMode = onUpdateSearchMode,
-                        onUpdateSearchService = onUpdateSearchService,
-                        onPickImage = attachmentPickerActions.onPickImage,
-                        onPickFile = attachmentPickerActions.onPickFile,
-                        onOpenMcp = { showMcpSheet = true },
-                        onOpenMore = onMoreClick,
-                    )
+                    Surface(
+                        color = scrimColor,
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        // 这里留出的 8dp 是功能栏与输入框之间的视觉留白，也铺在不透明底色之内
+                        Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                            InputFunctionBar(
+                                modelListState = modelListState,
+                                settings = settings,
+                                assistant = assistant,
+                                chatModel = chatModel,
+                                onUpdateSearchMode = onUpdateSearchMode,
+                                onUpdateSearchService = onUpdateSearchService,
+                                onOpenMcp = { showMcpSheet = true },
+                                onOpenFiles = onMoreClick,
+                            )
+                        }
+                    }
                 }
-            }
 
-            // 输入行：永远在最底部
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(containerShape)
-                    .then(
-                        if (settings.displaySetting.enableBlurEffect) {
-                            when (settings.displaySetting.backgroundEffectType) {
-                                BackgroundEffectType.BLUR -> Modifier.hazeBlur(
-                                    input = HazeInput.Sources(hazeState),
-                                    style = inputHazeStyle,
-                                )
-                                BackgroundEffectType.GLASS -> Modifier.hazeGlass(
-                                    input = HazeInput.Sources(hazeState),
-                                    style = GlassStyle.Material3(
-                                        containerColor = hazeTintColor,
-                                        tint = hazeTintColor.copy(alpha = 0.3f),
-                                    ) {
-                                        // Keep background text from competing with the input text.
-                                        optics(GlassDefaults.optics.copy(
-                                            blurRadius = OpticalSizeValue.Fixed(16.dp),
-                                            depth = OpticalSizeValue.Fixed(0.5f),
-                                        ))
-                                        shape(containerShape)
-                                    },
-                                )
-                            }
-                        } else Modifier
-                    ),
-                shape = containerShape,
-                tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else hazeTintColor,
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                // 输入行：永远在最底部
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(containerShape)
+                        .then(
+                            if (settings.displaySetting.enableBlurEffect) {
+                                when (settings.displaySetting.backgroundEffectType) {
+                                    BackgroundEffectType.BLUR -> Modifier.hazeBlur(
+                                        input = HazeInput.Sources(hazeState),
+                                        style = inputHazeStyle,
+                                    )
+                                    BackgroundEffectType.GLASS -> Modifier.hazeGlass(
+                                        input = HazeInput.Sources(hazeState),
+                                        style = GlassStyle.Material3(
+                                            containerColor = hazeTintColor,
+                                            tint = hazeTintColor.copy(alpha = 0.3f),
+                                        ) {
+                                            // Keep background text from competing with the input text.
+                                            optics(GlassDefaults.optics.copy(
+                                                blurRadius = OpticalSizeValue.Fixed(16.dp),
+                                                depth = OpticalSizeValue.Fixed(0.5f),
+                                            ))
+                                            shape(containerShape)
+                                        },
+                                    )
+                                }
+                            } else Modifier
+                        ),
+                    shape = containerShape,
+                    tonalElevation = 0.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else hazeTintColor,
                 ) {
-                    if (voiceState.phase != VoicePhase.Off) {
-                        VoiceModeRow(
-                            state = voiceState,
-                            onStop = onStopVoiceMode,
-                            onRetry = { onStartVoiceMode?.invoke() },
-                        )
-                        androidx.compose.material3.HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        )
-                    }
-                    if (state.messageContent.isNotEmpty()) {
-                        MediaFileInputRow(state = state)
-                    }
+                    Column(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        if (voiceState.phase != VoicePhase.Off) {
+                            VoiceModeRow(
+                                state = voiceState,
+                                onStop = onStopVoiceMode,
+                                onRetry = { onStartVoiceMode?.invoke() },
+                            )
+                            androidx.compose.material3.HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            )
+                        }
+                        if (state.messageContent.isNotEmpty()) {
+                            MediaFileInputRow(state = state)
+                        }
 
-                    TextInputRow(
-                        state = state,
-                        assistant = assistant,
-                        completionProviders = completionProviders,
-                        onSendMessage = { sendMessage() },
-                        // 快捷消息：输入内容之后就收起来；图片/文件入口都在功能栏里
-                        leadingActions = if (!hasContent && quickMessages.isNotEmpty()) {
-                            {
-                                QuickMessageButton(
-                                    quickMessages = quickMessages,
-                                    state = state,
-                                )
-                            }
-                        } else null,
-                        trailingActions = {
-                            // 语音输入：输入内容之后就收起来
-                            if (!hasContent && !voiceState.isActive && (asrState.isAvailable || asrState.isRecording)) {
-                                AsrButton(
-                                    state = asrState,
-                                    onClick = {
-                                        when (asrState.status) {
-                                            ASRStatus.Listening -> asr.stop()
-                                            ASRStatus.Idle, ASRStatus.Error -> {
-                                                if (!asrPermission.allRequiredPermissionsGranted) {
-                                                    asrPermission.requestPermissions()
-                                                } else {
-                                                    asrBaseText = state.textContent.text.toString()
-                                                    asr.start { transcript ->
-                                                        val spacer =
-                                                            if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
-                                                        state.setMessageText(asrBaseText + spacer + transcript)
+                        TextInputRow(
+                            state = state,
+                            assistant = assistant,
+                            completionProviders = completionProviders,
+                            onSendMessage = { sendMessage() },
+                            // 快捷消息：输入内容之后就收起来（图片/文件的入口都在功能栏里）
+                            leadingActions = if (!hasContent && quickMessages.isNotEmpty()) {
+                                {
+                                    QuickMessageButton(
+                                        quickMessages = quickMessages,
+                                        state = state,
+                                    )
+                                }
+                            } else null,
+                            trailingActions = {
+                                // 语音输入：输入内容之后就收起来
+                                if (!hasContent && !voiceState.isActive && (asrState.isAvailable || asrState.isRecording)) {
+                                    AsrButton(
+                                        state = asrState,
+                                        onClick = {
+                                            when (asrState.status) {
+                                                ASRStatus.Listening -> asr.stop()
+                                                ASRStatus.Idle, ASRStatus.Error -> {
+                                                    if (!asrPermission.allRequiredPermissionsGranted) {
+                                                        asrPermission.requestPermissions()
+                                                    } else {
+                                                        asrBaseText = state.textContent.text.toString()
+                                                        asr.start { transcript ->
+                                                            val spacer =
+                                                                if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
+                                                            state.setMessageText(asrBaseText + spacer + transcript)
+                                                        }
                                                     }
                                                 }
+
+                                                ASRStatus.Connecting, ASRStatus.Stopping -> {}
                                             }
-
-                                            ASRStatus.Connecting, ASRStatus.Stopping -> {}
                                         }
-                                    }
-                                )
-                            }
+                                    )
+                                }
 
-                            if (loading) {
-                                KeepScreenOn()
-                            }
+                                if (loading) {
+                                    KeepScreenOn()
+                                }
 
-                            AnimatedVisibility(
-                                visible = !asrState.isRecording,
-                                enter = fadeIn() + scaleIn(),
-                                exit = fadeOut() + scaleOut(),
-                            ) {
-                                SendButton(
-                                    loading = loading,
-                                    empty = state.isEmpty(),
-                                    onClick = { sendMessage() },
-                                    onLongClick = { sendMessageWithoutAnswer() },
-                                )
-                            }
-                        },
-                    )
+                                AnimatedVisibility(
+                                    visible = !asrState.isRecording,
+                                    enter = fadeIn() + scaleIn(),
+                                    exit = fadeOut() + scaleOut(),
+                                ) {
+                                    SendButton(
+                                        loading = loading,
+                                        empty = state.isEmpty(),
+                                        onClick = { sendMessage() },
+                                        onLongClick = { sendMessageWithoutAnswer() },
+                                    )
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -476,7 +473,7 @@ fun ChatInput(
     )
 }
 
-// 功能栏：自下往上第二行，横向滚动。模型 / 搜索 / MCP / 图片 / 文件 / 更多
+// 功能栏：自下往上第二行，一行四个：模型 / 搜索 / MCP / 文件（文件 = 原来的加号面板）
 @Composable
 private fun InputFunctionBar(
     modelListState: ModelListState,
@@ -485,16 +482,15 @@ private fun InputFunctionBar(
     chatModel: Model?,
     onUpdateSearchMode: (SearchMode) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
-    onPickImage: () -> Unit,
-    onPickFile: () -> Unit,
     onOpenMcp: () -> Unit,
-    onOpenMore: () -> Unit,
+    onOpenFiles: () -> Unit,
 ) {
     val currentModelId = modelListState.currentModel?.modelId
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -540,20 +536,10 @@ private fun InputFunctionBar(
             )
         }
 
-        InputFunctionChip(
-            label = "图片",
-            onClick = onPickImage,
-        ) {
-            Icon(
-                imageVector = HugeIcons.Image02,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-
+        // 文件：打开附件/文件面板（工作区、扩展、压缩上下文也在里面）
         InputFunctionChip(
             label = "文件",
-            onClick = onPickFile,
+            onClick = onOpenFiles,
         ) {
             Icon(
                 imageVector = HugeIcons.Files02,
@@ -561,22 +547,11 @@ private fun InputFunctionBar(
                 modifier = Modifier.size(20.dp),
             )
         }
-
-        InputFunctionChip(
-            label = "更多",
-            onClick = onOpenMore,
-        ) {
-            Icon(
-                imageVector = HugeIcons.LeftToRightListBullet,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-            )
-        }
     }
 }
 
-// 功能栏 chip：图标 + 文字。尺寸收紧到 20dp 图标 / 6dp 内边距 / labelMedium，
-// 这样六个 chip 才有机会在一屏宽度内排下（否则最右边那个会被切掉半边）
+// 功能栏 chip：视觉上就是「小图标 + 小字」的小胶囊，但整格点击区撑到 48dp 高，
+// 手指不用瞄准（两者靠外层 Box 的点击区和内层 Surface 的视觉分离）
 @Composable
 private fun InputFunctionChip(
     label: String,
@@ -584,39 +559,46 @@ private fun InputFunctionChip(
     checked: Boolean = false,
     leading: @Composable () -> Unit,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = if (checked) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            Color.Transparent
-        },
-        contentColor = if (checked) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+    Box(
+        modifier = Modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(
-            modifier = Modifier.padding(vertical = 6.dp, horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = if (checked) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                Color.Transparent
+            },
+            contentColor = if (checked) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
-            Box(
-                modifier = Modifier.size(20.dp),
-                contentAlignment = Alignment.Center,
+            Row(
+                modifier = Modifier.padding(vertical = 6.dp, horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                leading()
+                Box(
+                    modifier = Modifier.size(20.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    leading()
+                }
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                softWrap = false,
-            )
         }
     }
 }
