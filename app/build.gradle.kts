@@ -28,10 +28,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        ndk {
-            // 只保留 arm64：构建更快、产物更小（要跑模拟器再自行加回 x86_64）
-            abiFilters += listOf("arm64-v8a")
-        }
+        // 注意：ABI 只用下面的 splits.abi 控制。AGP 不允许 ndk.abiFilters 与 splits.abi
+        // 同时设置（会报 "Conflicting configuration ... in ndk abiFilters"），所以这里不再配 ndk 块。
     }
 
     splits {
