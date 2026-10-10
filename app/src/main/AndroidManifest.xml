@@ -8,6 +8,12 @@
   <uses-permission
     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
     android:maxSdkVersion="28" />
+  <!-- 自建相册要读手机相册。targetSdk = 28，所以 Android 13/14 上会走 legacy 分支：
+       这一个权限就拿到图片（以及视频/音频）的全量读权限，用户不会再被问「允许全部 / 选择照片」，
+       也就不需要 READ_MEDIA_IMAGES / READ_MEDIA_VISUAL_USER_SELECTED。
+       ⚠️ 千万别加 maxSdkVersion：加了之后 Android 13+ 会把它从清单里剥掉，
+       请求会静默失败，回调里永远等不到结果 -->
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />

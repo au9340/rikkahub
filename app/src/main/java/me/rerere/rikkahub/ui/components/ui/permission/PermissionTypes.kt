@@ -67,6 +67,25 @@ val PermissionRecordAudio = PermissionInfo(
     required = true
 )
 
+/**
+ * 自建相册读图权限。
+ *
+ * 这里刻意用 READ_EXTERNAL_STORAGE 而不是 READ_MEDIA_IMAGES：应用 targetSdk = 28，
+ * 在 Android 13/14 上走的是 legacy 分支，这一个权限就能拿到媒体库的全量读权限，
+ * 用户也不会被问「允许全部 / 选择照片」，因此 READ_MEDIA_VISUAL_USER_SELECTED 那套
+ * 部分授权的复杂度整个不需要。
+ *
+ * 文案暂时写中文字面量，跟 ChatInput 里「模型 / 搜索 / MCP / 文件」的做法一致，
+ * 之后交给 locale-tui 统一补翻译。
+ */
+@Suppress("DEPRECATION")
+val PermissionMediaImages = PermissionInfo(
+    permission = Manifest.permission.READ_EXTERNAL_STORAGE,
+    displayName = { Text("相册") },
+    usage = { Text("需要读取相册的权限，才能在这个页面里浏览并选择照片") },
+    required = true
+)
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 val PermissionNotification = PermissionInfo(
     permission = Manifest.permission.POST_NOTIFICATIONS,

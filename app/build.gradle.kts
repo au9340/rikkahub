@@ -26,7 +26,11 @@ android {
         // 安装到设备上的“包名”。改成 com.au.rikkahub 后，即为一个全新的独立应用
         applicationId = "com.au.rikkahub"
         minSdk = 26
-        targetSdk = 37
+        // ⚠️ 故意停在 28，是为原生 shell 让步：targetSdk >= 29 时，应用无法再执行自己
+        // 数据目录下的可执行文件（Termux 当年卡在 28 就是这个原因），workspace 的 shell 会废。
+        // 副作用：Play 上架不可能；Android 13+ 上读相册退化到 READ_EXTERNAL_STORAGE 这条
+        // legacy 分支（见 AndroidManifest）；enableOnBackInvokedCallback 失效。
+        targetSdk = 28
         versionCode = 191 + buildNumber
         versionName = "2.5.6" + (if (buildNumber > 0) "+build$buildNumber" else "")
 
@@ -94,6 +98,11 @@ android {
             useLegacyPackaging = true
             pickFirsts += "lib/*/libtermux.so"
         }
+    }
+    lint {
+        // targetSdk 停在 28 是刻意的（见上），这条检查必然报警。lintVitalRelease 会跟着
+        // assembleRelease 一起跑，留着它可能直接让出包失败，所以显式关掉
+        disable += "ExpiredTargetSdkVersion"
     }
     tasks.withType<KotlinCompile>().configureEach {
         compilerOptions.optIn.add("androidx.compose.material3.ExperimentalMaterial3Api")
