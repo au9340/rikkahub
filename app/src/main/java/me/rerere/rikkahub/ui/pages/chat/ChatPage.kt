@@ -398,6 +398,8 @@ private fun ChatPageContent(
                     onMoreClick = {
                         showFilesSheet = true
                     },
+                    // 空输入时右侧按钮是加号，点一下直接开相册选图
+                    onPickImage = attachmentPickerActions.onPickImage,
                 )
             },
             containerColor = Color.Transparent,

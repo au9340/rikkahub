@@ -109,6 +109,7 @@ import me.rerere.ai.provider.ModelType
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.asr.ASRStatus
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Cancel01
@@ -167,6 +168,8 @@ fun ChatInput(
     onCancelClick: () -> Unit,
     onSendClick: () -> Unit,
     onLongSendClick: () -> Unit,
+    // 空输入时右侧按钮变成加号，点一下开相册；不传就退回原来的灰色禁用箭头
+    onPickImage: (() -> Unit)? = null,
     messageQueue: MessageQueueState = MessageQueueState(),
     onRemoveQueuedMessage: (Uuid) -> Unit = {},
     onBeginEditQueuedMessage: (Uuid) -> QueuedMessage? = { null },
@@ -448,6 +451,7 @@ fun ChatInput(
                                         empty = state.isEmpty(),
                                         onClick = { sendMessage() },
                                         onLongClick = { sendMessageWithoutAnswer() },
+                                        onAttachClick = onPickImage,
                                     )
                                 }
                             },
@@ -640,15 +644,19 @@ private fun McpPickerSheet(
     }
 }
 
+// 右侧按钮三态：生成中且空输入是「停止」，空输入是「加号」（开相册），有内容就是「发送」
 @Composable
 private fun SendButton(
     loading: Boolean,
     empty: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onAttachClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val showStop = loading && empty
+    // 没有回调时（例如预览）退回原来的灰色禁用箭头，不要给出点不动的加号
+    val showAttach = !showStop && empty && onAttachClick != null
     val containerColor = when {
         showStop -> MaterialTheme.colorScheme.errorContainer
         empty -> MaterialTheme.colorScheme.surfaceContainerHigh
@@ -656,6 +664,7 @@ private fun SendButton(
     }
     val contentColor = when {
         showStop -> MaterialTheme.colorScheme.onErrorContainer
+        showAttach -> MaterialTheme.colorScheme.onSurface
         empty -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         else -> MaterialTheme.colorScheme.onPrimary
     }
@@ -666,8 +675,8 @@ private fun SendButton(
             .testTag("chat_send_button")
             .clip(CircleShape)
             .combinedClickable(
-                enabled = showStop || !empty,
-                onClick = onClick,
+                enabled = showStop || showAttach || !empty,
+                onClick = { if (showAttach) onAttachClick?.invoke() else onClick() },
                 onLongClick = onLongClick,
             )
     ) {
@@ -678,8 +687,18 @@ private fun SendButton(
             content = {},
         )
         Icon(
-            imageVector = if (showStop) HugeIcons.Cancel01 else HugeIcons.ArrowUp02,
-            contentDescription = stringResource(if (showStop) R.string.stop else R.string.send),
+            imageVector = when {
+                showStop -> HugeIcons.Cancel01
+                showAttach -> HugeIcons.Add01
+                else -> HugeIcons.ArrowUp02
+            },
+            contentDescription = stringResource(
+                when {
+                    showStop -> R.string.stop
+                    showAttach -> R.string.photo
+                    else -> R.string.send
+                }
+            ),
             tint = contentColor,
             modifier = Modifier.size(18.dp)
         )
