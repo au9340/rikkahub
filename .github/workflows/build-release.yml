@@ -1,7 +1,11 @@
 name: Build Release
 
 # 只保留手动触发：在 GitHub 仓库 → Actions → Build Release → Run workflow 点击构建
+# 【临时】本次额外加了 push 触发器，用于推送一次即触发构建；构建完成、拿到 APK 后本分支可直接删除
 on:
+  push:
+    branches:
+      - ci/trigger-build
   workflow_dispatch:
     inputs:
       publish_release:
@@ -89,9 +93,9 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      # 只有手动勾选 publish_release 时才发布 Release
+      # 手动勾选 publish_release、或由 push 触发时发布 Release（这样能直接下到 .apk，而不是 zip）
       - name: Publish GitHub Release
-        if: ${{ inputs.publish_release }}
+        if: ${{ github.event_name == 'push' || inputs.publish_release }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag || format('build-{0}', github.run_number) }}
