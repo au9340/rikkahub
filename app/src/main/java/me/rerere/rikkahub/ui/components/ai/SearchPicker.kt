@@ -90,6 +90,11 @@ enum class SearchMode {
 
 private val modeShapes = SearchMode.entries.map { it.shape() }
 
+/**
+ * 搜索入口按钮。
+ *
+ * @param label 传入时在图标右侧显示文字，用于输入栏的功能栏 chip；为 null（默认）时保持原来的纯图标样式。
+ */
 @Composable
 fun SearchPickerButton(
     enableSearch: Boolean,
@@ -98,6 +103,7 @@ fun SearchPickerButton(
     onUpdateSearchMode: (SearchMode) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
     model: Model?,
+    label: String? = null,
 ) {
     var showSearchPicker by remember { mutableStateOf(false) }
     val currentService = settings.searchServices.getOrNull(settings.searchServiceSelected)
@@ -135,6 +141,14 @@ fun SearchPickerButton(
                         contentDescription = stringResource(R.string.use_web_search),
                     )
                 }
+            }
+            if (label != null) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
         }
     }
