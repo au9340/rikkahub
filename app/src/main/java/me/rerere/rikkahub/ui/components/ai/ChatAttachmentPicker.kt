@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.ui.components.ai
 
 import android.net.Uri
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -13,34 +12,38 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.core.content.FileProvider
-import androidx.core.net.toUri
 import com.dokar.sonner.ToastType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FilesManager
-import me.rerere.ui.sketch.SketchDialog
-import me.rerere.ui.sketch.SketchResult
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.ChatInputState
-import me.rerere.rikkahub.utils.ImageUtils
+import me.rerere.rikkahub.ui.pages.photo.PhotoPickerPage
 import me.rerere.rikkahub.utils.isAllowedFileType
+import me.rerere.ui.sketch.SketchDialog
+import me.rerere.ui.sketch.SketchResult
 import org.koin.compose.koinInject
 import java.io.File
 import kotlin.uuid.Uuid
 
+/**
+ * 输入框附件入口。
+ *
+ * 相比上游做了三处收敛：
+ * 1. 相册不再用系统的 GetMultipleContents，改成自建相册页（PhotoPickerPage）
+ * 2. 去掉视频 / 音频入口
+ * 3. 去掉强制裁剪：拍完 / 选完直接进输入框，想改再点缩略图（走画板）
+ */
 internal data class ChatAttachmentPickerActions(
     val onTakePicture: () -> Unit,
     val onPickImage: () -> Unit,
-    val onPickVideo: () -> Unit,
-    val onPickAudio: () -> Unit,
     val onPickFile: () -> Unit,
     val onSketch: () -> Unit,
 )
@@ -58,36 +61,35 @@ internal fun rememberChatAttachmentPickerActions(
     val cameraPermission = rememberPermissionState(PermissionCamera)
     PermissionManager(permissionState = cameraPermission)
 
+    // 自建相册：加号直接打开它，选完把 uri 按选择顺序交给文件管理落库
+    var showPhotoPicker by remember { mutableStateOf(false) }
+    if (showPhotoPicker) {
+        PhotoPickerPage(
+            onDismiss = { showPhotoPicker = false },
+            onConfirm = { uris ->
+                showPhotoPicker = false
+                if (uris.isNotEmpty()) {
+                    inputState.addImages(filesManager.createChatFilesByContents(uris))
+                    onAttachmentAdded()
+                }
+            },
+        )
+    }
+
     var cameraOutputUri by remember { mutableStateOf<Uri?>(null) }
     var cameraOutputFile by remember { mutableStateOf<File?>(null) }
-    val (_, launchCameraCrop) = useCropLauncher(
-        onCroppedImageReady = { croppedUri ->
-            inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
-            onAttachmentAdded()
-        },
-        onCleanup = {
-            cameraOutputFile?.delete()
-            cameraOutputFile = null
-            cameraOutputUri = null
-        }
-    )
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captureSuccessful ->
-        if (captureSuccessful && cameraOutputUri != null) {
-            if (setting.displaySetting.skipCropImage) {
-                inputState.addImages(filesManager.createChatFilesByContents(listOf(cameraOutputUri!!)))
-                cameraOutputFile?.delete()
-                cameraOutputFile = null
-                cameraOutputUri = null
+    val cameraLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captureSuccessful ->
+            val uri = cameraOutputUri
+            if (captureSuccessful && uri != null) {
+                // createChatFilesByContents 会把内容拷贝进应用目录，拷完就能把临时文件删了
+                inputState.addImages(filesManager.createChatFilesByContents(listOf(uri)))
                 onAttachmentAdded()
-            } else {
-                launchCameraCrop(cameraOutputUri!!)
             }
-        } else {
             cameraOutputFile?.delete()
             cameraOutputFile = null
             cameraOutputUri = null
         }
-    }
     val onTakePicture: () -> Unit = {
         if (cameraPermission.allRequiredPermissionsGranted) {
             cameraOutputFile = context.cacheDir.resolve("camera_${Uuid.random()}.jpg")
@@ -99,67 +101,6 @@ internal fun rememberChatAttachmentPickerActions(
             cameraPermission.requestPermissions()
         }
     }
-
-    var preCropTempFile by remember { mutableStateOf<File?>(null) }
-    val (_, launchImageCrop) = useCropLauncher(
-        onCroppedImageReady = { croppedUri ->
-            inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
-            onAttachmentAdded()
-        },
-        onCleanup = {
-            preCropTempFile?.delete()
-            preCropTempFile = null
-        }
-    )
-    val imagePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
-            if (selectedUris.isNotEmpty()) {
-                Log.d("ImagePickButton", "Selected URIs: $selectedUris")
-                if (setting.displaySetting.skipCropImage) {
-                    inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
-                    onAttachmentAdded()
-                } else if (selectedUris.size == 1) {
-                    val tempFile = File(context.appTempFolder, "pick_temp_${System.currentTimeMillis()}.jpg")
-                    runCatching {
-                        val source = selectedUris.first()
-                        // HEIF/HEIC（尤其 HDR HEIF）交给 UCrop 前先解码转为 JPEG，规避裁剪解码失败
-                        val converted = ImageUtils.isHeifImage(context, source) &&
-                            ImageUtils.convertHeifToJpeg(context, source, tempFile)
-                        if (!converted) {
-                            context.contentResolver.openInputStream(source)?.use { input ->
-                                tempFile.outputStream().use { output -> input.copyTo(output) }
-                            }
-                        }
-                        preCropTempFile = tempFile
-                        launchImageCrop(tempFile.toUri())
-                    }.onFailure {
-                        Log.e("ImagePickButton", "Failed to copy image to temp, falling back", it)
-                        launchImageCrop(selectedUris.first())
-                    }
-                } else {
-                    inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
-                    onAttachmentAdded()
-                }
-            } else {
-                Log.d("ImagePickButton", "No images selected")
-            }
-        }
-
-    val videoPickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
-            if (selectedUris.isNotEmpty()) {
-                inputState.addVideos(filesManager.createChatFilesByContents(selectedUris))
-                onAttachmentAdded()
-            }
-        }
-
-    val audioPickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
-            if (selectedUris.isNotEmpty()) {
-                inputState.addAudios(filesManager.createChatFilesByContents(selectedUris))
-                onAttachmentAdded()
-            }
-        }
 
     val filePickerLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -209,9 +150,7 @@ internal fun rememberChatAttachmentPickerActions(
 
     return ChatAttachmentPickerActions(
         onTakePicture = onTakePicture,
-        onPickImage = { imagePickerLauncher.launch("image/*") },
-        onPickVideo = { videoPickerLauncher.launch("video/*") },
-        onPickAudio = { audioPickerLauncher.launch("audio/*") },
+        onPickImage = { showPhotoPicker = true },
         onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
         onSketch = { showSketch = true },
     )
