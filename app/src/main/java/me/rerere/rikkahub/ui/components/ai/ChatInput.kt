@@ -109,6 +109,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.asr.ASRStatus
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowUp02
+import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Files02
 import me.rerere.hugeicons.stroke.Fullscreen
@@ -129,6 +130,7 @@ import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionContext
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionItem
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionList
 import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionProvider
+import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
 import me.rerere.rikkahub.ui.components.ui.KeepScreenOn
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionRecordAudio
@@ -240,9 +242,7 @@ fun ChatInput(
         }
     }
 
-    // 输入框是否聚焦（≈ 键盘是否弹起）：聚焦时收起功能栏，只留最底部的输入行
-    var inputFocused by remember { mutableStateOf(false) }
-    // 已经输入了内容：只留文字和发送箭头，其余图标收起来
+    // 是否已经有内容：只留文字和发送箭头，其余图标收起来
     val hasContent = !state.isEmpty()
     var showMcpSheet by remember { mutableStateOf(false) }
     val quickMessages = remember(settings.quickMessages, assistant.quickMessageIds) {
@@ -261,6 +261,9 @@ fun ChatInput(
     val scrimColor = MaterialTheme.colorScheme.background
     val imeInsets = WindowInsets.ime
     val navigationBarsInsets = WindowInsets.navigationBars
+    // 键盘是否弹起。注意不要用输入框焦点来判断：输入法自己的「收起键盘」不会清掉焦点，
+    // 那样键盘收了功能栏也回不来
+    val keyboardVisible = imeInsets.getBottom(LocalDensity.current) > 0
     Surface(
         color = Color.Transparent,
         modifier = Modifier.drawWithCache {
@@ -298,10 +301,9 @@ fun ChatInput(
                 onResume = onResumeMessageQueue,
             )
 
-            // 功能栏：自下往上第二行。键盘收起时才占位，动手输入时整行收起，
-            // 免得输入区一直顶着两行
+            // 功能栏：自下往上第二行。键盘弹起时整行收起，只留最底部的输入行
             AnimatedVisibility(
-                visible = !inputFocused,
+                visible = !keyboardVisible,
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut(),
             ) {
@@ -312,6 +314,7 @@ fun ChatInput(
                     chatModel = chatModel,
                     onUpdateSearchMode = onUpdateSearchMode,
                     onUpdateSearchService = onUpdateSearchService,
+                    onPickImage = attachmentPickerActions.onPickImage,
                     onPickFile = attachmentPickerActions.onPickFile,
                     onOpenMcp = { showMcpSheet = true },
                     onOpenMore = onMoreClick,
@@ -375,25 +378,15 @@ fun ChatInput(
                         assistant = assistant,
                         completionProviders = completionProviders,
                         onSendMessage = { sendMessage() },
-                        onFocusChanged = { inputFocused = it },
-                        leadingActions = {
-                            // 图片：一点直接开相册/拍照（豆包的位置）
-                            ActionIconButton(
-                                onClick = attachmentPickerActions.onPickImage
-                            ) {
-                                Icon(
-                                    imageVector = HugeIcons.Image02,
-                                    contentDescription = stringResource(R.string.photo),
-                                )
-                            }
-                            // 快捷消息：输入内容之后就收起来
-                            if (!hasContent && quickMessages.isNotEmpty()) {
+                        // 快捷消息：输入内容之后就收起来；图片/文件入口都在功能栏里
+                        leadingActions = if (!hasContent && quickMessages.isNotEmpty()) {
+                            {
                                 QuickMessageButton(
                                     quickMessages = quickMessages,
                                     state = state,
                                 )
                             }
-                        },
+                        } else null,
                         trailingActions = {
                             // 语音输入：输入内容之后就收起来
                             if (!hasContent && !voiceState.isActive && (asrState.isAvailable || asrState.isRecording)) {
@@ -459,7 +452,7 @@ fun ChatInput(
     )
 }
 
-// 功能栏：自下往上第二行，横向滚动。模型 / 搜索 / MCP / 文件 / 更多
+// 功能栏：自下往上第二行，横向滚动。模型 / 搜索 / MCP / 图片 / 文件 / 更多
 @Composable
 private fun InputFunctionBar(
     modelListState: ModelListState,
@@ -468,10 +461,12 @@ private fun InputFunctionBar(
     chatModel: Model?,
     onUpdateSearchMode: (SearchMode) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
+    onPickImage: () -> Unit,
     onPickFile: () -> Unit,
     onOpenMcp: () -> Unit,
     onOpenMore: () -> Unit,
 ) {
+    val currentModelId = modelListState.currentModel?.modelId
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -479,8 +474,25 @@ private fun InputFunctionBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // 模型：沿用原来的厂商图标（DeepSeek 是鲸鱼那种），onlyIcon = false 时带文字
-        ModelSelectorButton(state = modelListState)
+        // 模型：只按厂商图标区分（DeepSeek 是鲸鱼那种），文字固定两个字，和其它项对齐
+        InputFunctionChip(
+            label = "模型",
+            onClick = modelListState::open,
+        ) {
+            if (currentModelId != null) {
+                AutoAIIcon(
+                    name = currentModelId,
+                    modifier = Modifier.size(24.dp),
+                    color = Color.Transparent,
+                )
+            } else {
+                Icon(
+                    imageVector = HugeIcons.Brain02,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
 
         SearchPickerButton(
             enableSearch = assistant.enableWebSearch,
@@ -493,33 +505,59 @@ private fun InputFunctionBar(
 
         // MCP：启用至少一个就亮蓝底（原来徽标的底色），不显示数量
         InputFunctionChip(
-            icon = HugeIcons.McpServer,
             label = "MCP",
             checked = assistant.mcpServers.isNotEmpty(),
             onClick = onOpenMcp,
-        )
+        ) {
+            Icon(
+                imageVector = HugeIcons.McpServer,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+        }
 
         InputFunctionChip(
-            icon = HugeIcons.Files02,
+            label = "图片",
+            onClick = onPickImage,
+        ) {
+            Icon(
+                imageVector = HugeIcons.Image02,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+
+        InputFunctionChip(
             label = "文件",
             onClick = onPickFile,
-        )
+        ) {
+            Icon(
+                imageVector = HugeIcons.Files02,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+        }
 
         InputFunctionChip(
-            icon = HugeIcons.LeftToRightListBullet,
             label = "更多",
             onClick = onOpenMore,
-        )
+        ) {
+            Icon(
+                imageVector = HugeIcons.LeftToRightListBullet,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+        }
     }
 }
 
 // 功能栏 chip：图标 + 文字，checked 时用 primaryContainer（= 原来 MCP 数量徽标的底色）
 @Composable
 private fun InputFunctionChip(
-    icon: ImageVector,
     label: String,
     onClick: () -> Unit,
     checked: Boolean = false,
+    leading: @Composable () -> Unit,
 ) {
     Surface(
         onClick = onClick,
@@ -546,10 +584,7 @@ private fun InputFunctionChip(
                 modifier = Modifier.size(24.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                )
+                leading()
             }
             Text(
                 text = label,
@@ -645,34 +680,13 @@ private fun SendButton(
 }
 
 @Composable
-private fun ActionIconButton(
-    onClick: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.size(30.dp),
-        shape = CircleShape,
-        tonalElevation = 0.dp,
-        color = Color.Transparent,
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center
-        ) {
-            content()
-        }
-    }
-}
-
-@Composable
 private fun TextInputRow(
     state: ChatInputState,
     assistant: Assistant,
     completionProviders: List<ChatCompletionProvider>,
     onSendMessage: () -> Unit,
-    onFocusChanged: (Boolean) -> Unit,
-    leadingActions: @Composable () -> Unit,
     trailingActions: @Composable () -> Unit,
+    leadingActions: (@Composable () -> Unit)? = null,
 ) {
     val settings = LocalSettings.current
     val filesManager: FilesManager = koinInject()
@@ -825,7 +839,6 @@ private fun TextInputRow(
                 .contentReceiver(receiveContentListener)
                 .onFocusChanged {
                     isFocused = it.isFocused
-                    onFocusChanged(it.isFocused)
                 },
             shape = MaterialTheme.shapes.largeIncreased,
             placeholder = {
@@ -848,22 +861,30 @@ private fun TextInputRow(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,
             ),
-            // 左侧：图片 / 快捷消息；右侧：放大 / 语音 / 发送（都在框内，不额外占高度）
+            // 左侧：快捷消息；右侧：放大在上、发送在下（跟豆包一样竖排，不挤占文字宽度）
             leadingIcon = leadingActions,
             trailingIcon = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
+                Column(horizontalAlignment = Alignment.End) {
                     if (showFullScreenButton) {
                         IconButton(
                             onClick = {
                                 isFullScreen = !isFullScreen
-                            }) {
-                            Icon(HugeIcons.Fullscreen, null)
+                            },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = HugeIcons.Fullscreen,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
                     }
-                    trailingActions()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        trailingActions()
+                    }
                 }
             },
         )
