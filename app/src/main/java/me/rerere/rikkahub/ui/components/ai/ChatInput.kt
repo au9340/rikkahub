@@ -1,10 +1,12 @@
 package me.rerere.rikkahub.ui.components.ai
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -45,11 +47,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,6 +72,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -98,15 +104,17 @@ import dev.chrisbanes.haze.glass.material3.Material3
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import me.rerere.ai.provider.Model
-import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.asr.ASRStatus
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
+import me.rerere.hugeicons.stroke.Files02
 import me.rerere.hugeicons.stroke.Fullscreen
+import me.rerere.hugeicons.stroke.Image02
+import me.rerere.hugeicons.stroke.LeftToRightListBullet
+import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.BackgroundEffectType
@@ -232,6 +240,21 @@ fun ChatInput(
         }
     }
 
+    // 输入框是否聚焦（≈ 键盘是否弹起）：聚焦时收起功能栏，只留最底部的输入行
+    var inputFocused by remember { mutableStateOf(false) }
+    // 已经输入了内容：只留文字和发送箭头，其余图标收起来
+    val hasContent = !state.isEmpty()
+    var showMcpSheet by remember { mutableStateOf(false) }
+    val quickMessages = remember(settings.quickMessages, assistant.quickMessageIds) {
+        settings.getQuickMessagesOfAssistant(assistant)
+    }
+    // 输入行里的图片 / 文件入口
+    val attachmentPickerActions = rememberChatAttachmentPickerActions(
+        inputState = state,
+        setting = settings,
+        onAttachmentAdded = {},
+    )
+
     // 底部渐变遮罩：从输入区顶部渐变到输入框底边，再往下铺纯色。
     // 输入框底边以下还有 8dp 内边距和系统导航栏（键盘弹出时导航栏不可见，inset 归 0），
     // 渐变必须在这条线之前就完全不透明，否则滚到那里的消息仍会透出来（导航栏透字）
@@ -274,6 +297,28 @@ fun ChatInput(
                 onFinishEdit = onFinishEditQueuedMessage,
                 onResume = onResumeMessageQueue,
             )
+
+            // 功能栏：自下往上第二行。键盘收起时才占位，动手输入时整行收起，
+            // 免得输入区一直顶着两行
+            AnimatedVisibility(
+                visible = !inputFocused,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                InputFunctionBar(
+                    modelListState = modelListState,
+                    settings = settings,
+                    assistant = assistant,
+                    chatModel = chatModel,
+                    onUpdateSearchMode = onUpdateSearchMode,
+                    onUpdateSearchService = onUpdateSearchService,
+                    onPickFile = attachmentPickerActions.onPickFile,
+                    onOpenMcp = { showMcpSheet = true },
+                    onOpenMore = onMoreClick,
+                )
+            }
+
+            // 输入行：永远在最底部
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -330,125 +375,227 @@ fun ChatInput(
                         assistant = assistant,
                         completionProviders = completionProviders,
                         onSendMessage = { sendMessage() },
-                    )
+                        onFocusChanged = { inputFocused = it },
+                        leadingActions = {
+                            // 图片：一点直接开相册/拍照（豆包的位置）
+                            ActionIconButton(
+                                onClick = attachmentPickerActions.onPickImage
+                            ) {
+                                Icon(
+                                    imageVector = HugeIcons.Image02,
+                                    contentDescription = stringResource(R.string.photo),
+                                )
+                            }
+                            // 快捷消息：输入内容之后就收起来
+                            if (!hasContent && quickMessages.isNotEmpty()) {
+                                QuickMessageButton(
+                                    quickMessages = quickMessages,
+                                    state = state,
+                                )
+                            }
+                        },
+                        trailingActions = {
+                            // 语音输入：输入内容之后就收起来
+                            if (!hasContent && !voiceState.isActive && (asrState.isAvailable || asrState.isRecording)) {
+                                AsrButton(
+                                    state = asrState,
+                                    onClick = {
+                                        when (asrState.status) {
+                                            ASRStatus.Listening -> asr.stop()
+                                            ASRStatus.Idle, ASRStatus.Error -> {
+                                                if (!asrPermission.allRequiredPermissionsGranted) {
+                                                    asrPermission.requestPermissions()
+                                                } else {
+                                                    asrBaseText = state.textContent.text.toString()
+                                                    asr.start { transcript ->
+                                                        val spacer =
+                                                            if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
+                                                        state.setMessageText(asrBaseText + spacer + transcript)
+                                                    }
+                                                }
+                                            }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            // Model Picker
-                            ModelSelectorButton(
-                                state = modelListState,
-                                onlyIcon = true,
-                                modifier = Modifier,
-                            )
-
-                            // Search
-                            val enableSearchMsg = stringResource(R.string.web_search_enabled)
-                            val disableSearchMsg = stringResource(R.string.web_search_disabled)
-                            SearchPickerButton(
-                                enableSearch = assistant.enableWebSearch,
-                                settings = settings,
-                                onUpdateSearchMode = { mode ->
-                                    onUpdateSearchMode(mode)
-                                    val enabled = mode != SearchMode.OFF
-                                    toaster.show(
-                                        message = if (enabled) enableSearchMsg else disableSearchMsg,
-                                        duration = 1.seconds,
-                                        type = if (enabled) {
-                                            ToastType.Success
-                                        } else {
-                                            ToastType.Normal
+                                            ASRStatus.Connecting, ASRStatus.Stopping -> {}
                                         }
-                                    )
-                                },
-                                onUpdateSearchService = onUpdateSearchService,
-                                model = chatModel,
-                            )
-
-                            // Reasoning
-                            if (chatModel?.abilities?.contains(ModelAbility.REASONING) == true) {
-                                ReasoningButton(
-                                    reasoningLevel = assistant.reasoningLevel,
-                                    onUpdateReasoningLevel = {
-                                        onUpdateAssistant(assistant.copy(reasoningLevel = it))
-                                    },
-                                    onlyIcon = true,
+                                    }
                                 )
                             }
 
-                        }
+                            if (loading) {
+                                KeepScreenOn()
+                            }
 
-                        ActionIconButton(
-                            onClick = onMoreClick
-                        ) {
-                            Icon(
-                                imageVector = HugeIcons.Add01,
-                                contentDescription = stringResource(R.string.more_options)
-                            )
-                        }
-
-                        if (!voiceState.isActive && (asrState.isAvailable || asrState.isRecording)) {
-                            AsrButton(
-                                state = asrState,
-                                onClick = {
-                                    when (asrState.status) {
-                                        ASRStatus.Listening -> asr.stop()
-                                        ASRStatus.Idle, ASRStatus.Error -> {
-                                            if (!asrPermission.allRequiredPermissionsGranted) {
-                                                asrPermission.requestPermissions()
-                                            } else {
-                                                asrBaseText = state.textContent.text.toString()
-                                                asr.start { transcript ->
-                                                    val spacer =
-                                                        if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
-                                                    state.setMessageText(asrBaseText + spacer + transcript)
-                                                }
-                                            }
-                                        }
-
-                                        ASRStatus.Connecting, ASRStatus.Stopping -> {}
-                                    }
-                                }
-                            )
-                        }
-
-                        if (loading) {
-                            KeepScreenOn()
-                        }
-
-                        AnimatedVisibility(
-                            visible = !asrState.isRecording,
-                            enter = fadeIn() + scaleIn(),
-                            exit = fadeOut() + scaleOut(),
-                        ) {
-                            SendButton(
-                                loading = loading,
-                                empty = state.isEmpty(),
-                                onClick = { sendMessage() },
-                                onLongClick = { sendMessageWithoutAnswer() },
-                            )
-                        }
-                    }
+                            AnimatedVisibility(
+                                visible = !asrState.isRecording,
+                                enter = fadeIn() + scaleIn(),
+                                exit = fadeOut() + scaleOut(),
+                            ) {
+                                SendButton(
+                                    loading = loading,
+                                    empty = state.isEmpty(),
+                                    onClick = { sendMessage() },
+                                    onLongClick = { sendMessageWithoutAnswer() },
+                                )
+                            }
+                        },
+                    )
                 }
             }
-
         }
+    }
+
+    if (showMcpSheet) {
+        McpPickerSheet(
+            settings = settings,
+            assistant = assistant,
+            onUpdateAssistant = onUpdateAssistant,
+            onDismiss = { showMcpSheet = false },
+        )
     }
 
     ModelListSheet(
         state = modelListState,
         onSelect = onUpdateChatModel,
     )
+}
+
+// 功能栏：自下往上第二行，横向滚动。模型 / 搜索 / MCP / 文件 / 更多
+@Composable
+private fun InputFunctionBar(
+    modelListState: ModelListState,
+    settings: Settings,
+    assistant: Assistant,
+    chatModel: Model?,
+    onUpdateSearchMode: (SearchMode) -> Unit,
+    onUpdateSearchService: (Int) -> Unit,
+    onPickFile: () -> Unit,
+    onOpenMcp: () -> Unit,
+    onOpenMore: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        // 模型：沿用原来的厂商图标（DeepSeek 是鲸鱼那种），onlyIcon = false 时带文字
+        ModelSelectorButton(state = modelListState)
+
+        SearchPickerButton(
+            enableSearch = assistant.enableWebSearch,
+            settings = settings,
+            onUpdateSearchMode = onUpdateSearchMode,
+            onUpdateSearchService = onUpdateSearchService,
+            model = chatModel,
+            label = "搜索",
+        )
+
+        // MCP：启用至少一个就亮蓝底（原来徽标的底色），不显示数量
+        InputFunctionChip(
+            icon = HugeIcons.McpServer,
+            label = "MCP",
+            checked = assistant.mcpServers.isNotEmpty(),
+            onClick = onOpenMcp,
+        )
+
+        InputFunctionChip(
+            icon = HugeIcons.Files02,
+            label = "文件",
+            onClick = onPickFile,
+        )
+
+        InputFunctionChip(
+            icon = HugeIcons.LeftToRightListBullet,
+            label = "更多",
+            onClick = onOpenMore,
+        )
+    }
+}
+
+// 功能栏 chip：图标 + 文字，checked 时用 primaryContainer（= 原来 MCP 数量徽标的底色）
+@Composable
+private fun InputFunctionChip(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    checked: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = if (checked) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            Color.Transparent
+        },
+        contentColor = if (checked) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+    }
+}
+
+@Composable
+private fun McpPickerSheet(
+    settings: Settings,
+    assistant: Assistant,
+    onUpdateAssistant: (Assistant) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.7f)
+                .padding(16.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.mcp_picker_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+            McpPicker(
+                assistant = assistant,
+                servers = settings.mcpServers,
+                onUpdateAssistant = onUpdateAssistant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        }
+    }
 }
 
 @Composable
@@ -523,6 +670,9 @@ private fun TextInputRow(
     assistant: Assistant,
     completionProviders: List<ChatCompletionProvider>,
     onSendMessage: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
+    leadingActions: @Composable () -> Unit,
+    trailingActions: @Composable () -> Unit,
 ) {
     val settings = LocalSettings.current
     val filesManager: FilesManager = koinInject()
@@ -578,8 +728,8 @@ private fun TextInputRow(
                 constraints = Constraints(maxWidth = textAreaWidthPx),
             ).lineCount
         }
-        // 只有内容超过 CHAT_INPUT_MAX_LINES 行时才给全屏编辑入口，不再常驻
-        val showFullScreenButton = inputLineCount > CHAT_INPUT_MAX_LINES
+        // 达到 CHAT_INPUT_MAX_LINES 行就给全屏编辑入口（跟豆包一样，到三行才出现放大框）
+        val showFullScreenButton = inputLineCount >= CHAT_INPUT_MAX_LINES
         val receiveContentListener = remember(
             settings.displaySetting.pasteLongTextAsFile, settings.displaySetting.pasteLongTextThreshold
         ) {
@@ -675,6 +825,7 @@ private fun TextInputRow(
                 .contentReceiver(receiveContentListener)
                 .onFocusChanged {
                     isFocused = it.isFocused
+                    onFocusChanged(it.isFocused)
                 },
             shape = MaterialTheme.shapes.largeIncreased,
             placeholder = {
@@ -697,12 +848,14 @@ private fun TextInputRow(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,
             ),
+            // 左侧：图片 / 快捷消息；右侧：放大 / 语音 / 发送（都在框内，不额外占高度）
+            leadingIcon = leadingActions,
             trailingIcon = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    if (isFocused && showFullScreenButton) {
+                    if (showFullScreenButton) {
                         IconButton(
                             onClick = {
                                 isFullScreen = !isFullScreen
@@ -710,13 +863,9 @@ private fun TextInputRow(
                             Icon(HugeIcons.Fullscreen, null)
                         }
                     }
+                    trailingActions()
                 }
             },
-            leadingIcon = if (quickMessages.isNotEmpty()) {
-                {
-                    QuickMessageButton(quickMessages = quickMessages, state = state)
-                }
-            } else null,
         )
         if (isFullScreen) {
             FullScreenEditor(state = state) {
