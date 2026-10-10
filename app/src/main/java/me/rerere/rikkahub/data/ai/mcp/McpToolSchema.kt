@@ -18,7 +18,8 @@ private const val REF = "\$ref"
 internal fun ToolSchema.toSchema(): InputSchema {
     val properties = properties ?: JsonObject(emptyMap())
     val root = JsonObject(buildMap {
-        put("type", JsonPrimitive(type))
+        // rikka.4 起 type 为 JsonElement?：服务端可能给联合数组（如 ["object","null"]），缺省时仍按 object
+        put("type", type ?: JsonPrimitive("object"))
         put("properties", properties)
         defs?.let { put("\$defs", it) }
     })
