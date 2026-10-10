@@ -94,6 +94,7 @@ private val modeShapes = SearchMode.entries.map { it.shape() }
  * 搜索入口按钮。
  *
  * @param label 传入时在图标右侧显示文字，用于输入栏的功能栏 chip；为 null（默认）时保持原来的纯图标样式。
+ *   带 label 时尺寸跟其它 chip 保持一致（20dp 图标 + labelMedium 文字）。
  */
 @Composable
 fun SearchPickerButton(
@@ -116,13 +117,15 @@ fun SearchPickerButton(
         }
     ) {
         Row(
-            modifier = Modifier
-                .padding(vertical = 8.dp, horizontal = 8.dp),
+            modifier = Modifier.padding(
+                horizontal = if (label != null) 6.dp else 8.dp,
+                vertical = if (label != null) 6.dp else 8.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (label != null) 4.dp else 8.dp)
         ) {
             Box(
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(if (label != null) 20.dp else 24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (model?.tools?.contains(BuiltInTools.Search) == true) {
@@ -145,7 +148,7 @@ fun SearchPickerButton(
             if (label != null) {
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     maxLines = 1,
                     softWrap = false,
                 )
