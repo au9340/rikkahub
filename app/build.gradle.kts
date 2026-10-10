@@ -29,7 +29,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // 只保留 arm64：构建更快、产物更小（要跑模拟器再自行加回 x86_64）
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
@@ -40,8 +41,9 @@ android {
             val isBuildingBundle = gradle.startParameter.taskNames.any { it.lowercase().contains("bundle") }
             isEnable = !isBuildingBundle
             reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = true
+            include("arm64-v8a")
+            // 只剩一个 ABI，不需要再出 universal 包
+            isUniversalApk = false
         }
     }
 

@@ -7,6 +7,10 @@ android {
     namespace = "me.rerere.workspace"
 
     defaultConfig {
+        // 只编 arm64 的原生库，避免为其他 ABI 白跑 CMake
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
         externalNativeBuild {
             cmake {
                 cppFlags += ""
