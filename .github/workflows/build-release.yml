@@ -1,7 +1,10 @@
 name: Build Release
 
-# 只保留手动触发：在 GitHub 仓库 → Actions → Build Release → Run workflow 点击构建
+# 推送到 master 自动出包；也可以在 Actions 里手动触发（可选发布带自定义 tag 的独立 Release）
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       publish_release:
@@ -9,10 +12,15 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: 'Release tag（留空则自动使用 build-<构建编号>）'
+        description: 'Release tag（留空则覆盖更新 build-latest）'
         type: string
         required: false
         default: ''
+
+# 连续推送时取消还没跑完的旧构建，省时间、也避免旧包覆盖新包
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -62,11 +70,12 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
-      # 签名密钥已硬编码在 app/build.gradle.kts 中（app/testkey_untrusted.jks），无需任何 Secret
+      # 签名密钥已硬编码在 app/build.gradle.kts 中（app/testkey_untrusted.jks），无需任何 Secret。
+      # 运行编号作为构建编号传入，versionCode 每次递增，安装时可以直接覆盖，不用先卸载
       - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease -PrikkaBuildNumber=${{ github.run_number }}
 
       # 确认产物确实用你的钥匙签过名（未签名会在此步直接失败）
       - name: Verify APK signature
@@ -89,16 +98,20 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      # 只有手动勾选 publish_release 时才发布 Release
+      # push 触发（或手动勾选 publish_release）时发布 Release。
+      # 默认覆盖更新同一个 release（build-latest），下载地址固定不变，永远指向最新构建
       - name: Publish GitHub Release
-        if: ${{ inputs.publish_release }}
+        if: ${{ github.event_name == 'push' || inputs.publish_release }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag || format('build-{0}', github.run_number) }}
-          name: Build #${{ github.run_number }}
+          tag_name: ${{ inputs.release_tag || 'build-latest' }}
+          name: "Build #${{ github.run_number }}"
           prerelease: true
           body: |
-            手动构建（commit `${{ github.sha }}`）
+            build #${{ github.run_number }}（commit `${{ github.sha }}`）
+
+            versionCode = 191 + ${{ github.run_number }}，versionName 带 `+build${{ github.run_number }}` 后缀，
+            版本号比上一次构建更大，可以直接覆盖安装。
 
             > ⚠️ 自建版本，可能不稳定，仅供测试。
           files: app/build/outputs/apk/release/*.apk
