@@ -42,6 +42,7 @@ import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -64,15 +65,20 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.dokar.sonner.ToastType
@@ -126,6 +132,9 @@ import kotlin.time.Duration.Companion.seconds
 import me.rerere.rikkahub.ui.pages.chat.VoicePhase
 import me.rerere.rikkahub.ui.pages.chat.VoiceSessionState
 import kotlin.uuid.Uuid
+
+/** 聊天输入框最多显示的行数：超过之后框内滚动，并出现全屏编辑入口 */
+private const val CHAT_INPUT_MAX_LINES = 3
 
 @Composable
 fun ChatInput(
@@ -534,6 +543,27 @@ private fun TextInputRow(
         var isFocused by remember { mutableStateOf(false) }
         var isFullScreen by remember { mutableStateOf(false) }
         var completionList by remember { mutableStateOf<ChatCompletionList?>(null) }
+
+        // 输入框实际宽度，用来判断文本是否已经超过 CHAT_INPUT_MAX_LINES 行
+        var inputWidthPx by remember { mutableStateOf(0) }
+        val textMeasurer = rememberTextMeasurer()
+        val inputText = state.textContent.text
+        val inputTextStyle = LocalTextStyle.current
+        // 估算文本可用宽度：扣掉 M3 输入框左右内边距，以及左侧快捷消息按钮的占位
+        val textAreaWidthPx = with(LocalDensity.current) {
+            inputWidthPx - 32.dp.roundToPx() - if (quickMessages.isNotEmpty()) 44.dp.roundToPx() else 0
+        }
+        val inputLineCount = if (inputText.isEmpty() || textAreaWidthPx <= 0) {
+            1
+        } else {
+            textMeasurer.measure(
+                text = AnnotatedString(inputText.toString()),
+                style = inputTextStyle,
+                constraints = Constraints(maxWidth = textAreaWidthPx),
+            ).lineCount
+        }
+        // 只有内容超过 CHAT_INPUT_MAX_LINES 行时才给全屏编辑入口，不再常驻
+        val showFullScreenButton = inputLineCount > CHAT_INPUT_MAX_LINES
         val receiveContentListener = remember(
             settings.displaySetting.pasteLongTextAsFile, settings.displaySetting.pasteLongTextThreshold
         ) {
@@ -624,6 +654,7 @@ private fun TextInputRow(
             state = state.textContent,
             modifier = Modifier
                 .fillMaxWidth()
+                .onSizeChanged { inputWidthPx = it.width }
                 .testTag("chat_input")
                 .contentReceiver(receiveContentListener)
                 .onFocusChanged {
@@ -633,7 +664,8 @@ private fun TextInputRow(
             placeholder = {
                 Text(stringResource(R.string.chat_input_placeholder))
             },
-            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+            // 输入框最高 CHAT_INPUT_MAX_LINES 行，超过后内部滚动（写长文用右上角全屏编辑）
+            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = CHAT_INPUT_MAX_LINES),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
                 imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
@@ -654,7 +686,7 @@ private fun TextInputRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    if (isFocused) {
+                    if (isFocused && showFullScreenButton) {
                         IconButton(
                             onClick = {
                                 isFullScreen = !isFullScreen
