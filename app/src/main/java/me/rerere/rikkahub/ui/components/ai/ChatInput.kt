@@ -185,6 +185,7 @@ fun ChatInput(
 
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val density = LocalDensity.current
 
     val themeShape = MaterialTheme.shapes.largeIncreased
     val containerShape = RoundedCornerShape(
@@ -261,9 +262,25 @@ fun ChatInput(
     val scrimColor = MaterialTheme.colorScheme.background
     val imeInsets = WindowInsets.ime
     val navigationBarsInsets = WindowInsets.navigationBars
-    // 键盘是否弹起。注意不要用输入框焦点来判断：输入法自己的「收起键盘」不会清掉焦点，
-    // 那样键盘收了功能栏也回不来
-    val keyboardVisible = imeInsets.getBottom(LocalDensity.current) > 0
+
+    // 键盘是否处于展开状态。这里有两个坑：
+    // 1) 不能用输入框焦点：输入法自带的「收起键盘」不会清掉焦点，键盘收了功能栏也回不来
+    // 2) 不能等 inset 归零：那要等键盘完全收完（~250ms）功能栏才出现，会有明显延迟。
+    //    所以看趋势：一开始往下收就立刻让功能栏回来；再用峰值做门槛，
+    //    免得键盘自己换高度（候选栏、表情行）时被误判成收起
+    var keyboardExpanded by remember { mutableStateOf(false) }
+    LaunchedEffect(imeInsets) {
+        var last = imeInsets.getBottom(density)
+        var peak = last
+        snapshotFlow { imeInsets.getBottom(density) }.collect { height ->
+            if (height > peak) peak = height
+            val closing = height < last && height < peak * 0.75f
+            last = height
+            if (height == 0) peak = 0
+            keyboardExpanded = height > 0 && !closing
+        }
+    }
+
     Surface(
         color = Color.Transparent,
         modifier = Modifier.drawWithCache {
@@ -301,24 +318,31 @@ fun ChatInput(
                 onResume = onResumeMessageQueue,
             )
 
-            // 功能栏：自下往上第二行。键盘弹起时整行收起，只留最底部的输入行
+            // 功能栏：自下往上第二行。键盘弹起时整行收起，只留最底部的输入行。
+            // 这里必须在渐变还没到全不透明的高度上自带一块不透明底色，否则消息会透出来
             AnimatedVisibility(
-                visible = !keyboardVisible,
+                visible = !keyboardExpanded,
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut(),
             ) {
-                InputFunctionBar(
-                    modelListState = modelListState,
-                    settings = settings,
-                    assistant = assistant,
-                    chatModel = chatModel,
-                    onUpdateSearchMode = onUpdateSearchMode,
-                    onUpdateSearchService = onUpdateSearchService,
-                    onPickImage = attachmentPickerActions.onPickImage,
-                    onPickFile = attachmentPickerActions.onPickFile,
-                    onOpenMcp = { showMcpSheet = true },
-                    onOpenMore = onMoreClick,
-                )
+                Surface(
+                    color = scrimColor,
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    InputFunctionBar(
+                        modelListState = modelListState,
+                        settings = settings,
+                        assistant = assistant,
+                        chatModel = chatModel,
+                        onUpdateSearchMode = onUpdateSearchMode,
+                        onUpdateSearchService = onUpdateSearchService,
+                        onPickImage = attachmentPickerActions.onPickImage,
+                        onPickFile = attachmentPickerActions.onPickFile,
+                        onOpenMcp = { showMcpSheet = true },
+                        onOpenMore = onMoreClick,
+                    )
+                }
             }
 
             // 输入行：永远在最底部
@@ -482,7 +506,7 @@ private fun InputFunctionBar(
             if (currentModelId != null) {
                 AutoAIIcon(
                     name = currentModelId,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(20.dp),
                     color = Color.Transparent,
                 )
             } else {
@@ -512,7 +536,7 @@ private fun InputFunctionBar(
             Icon(
                 imageVector = HugeIcons.McpServer,
                 contentDescription = null,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
 
@@ -523,7 +547,7 @@ private fun InputFunctionBar(
             Icon(
                 imageVector = HugeIcons.Image02,
                 contentDescription = null,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
 
@@ -534,7 +558,7 @@ private fun InputFunctionBar(
             Icon(
                 imageVector = HugeIcons.Files02,
                 contentDescription = null,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
 
@@ -545,13 +569,14 @@ private fun InputFunctionBar(
             Icon(
                 imageVector = HugeIcons.LeftToRightListBullet,
                 contentDescription = null,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }
 }
 
-// 功能栏 chip：图标 + 文字，checked 时用 primaryContainer（= 原来 MCP 数量徽标的底色）
+// 功能栏 chip：图标 + 文字。尺寸收紧到 20dp 图标 / 6dp 内边距 / labelMedium，
+// 这样六个 chip 才有机会在一屏宽度内排下（否则最右边那个会被切掉半边）
 @Composable
 private fun InputFunctionChip(
     label: String,
@@ -576,19 +601,19 @@ private fun InputFunctionChip(
         shadowElevation = 0.dp,
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+            modifier = Modifier.padding(vertical = 6.dp, horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Box(
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(20.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 leading()
             }
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 softWrap = false,
             )
