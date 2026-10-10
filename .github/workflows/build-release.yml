@@ -1,0 +1,104 @@
+name: Build Release
+
+# 只保留手动触发：在 GitHub 仓库 → Actions → Build Release → Run workflow 点击构建
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: '同时发布为 GitHub Release（默认只上传构建产物）'
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag（留空则自动使用 build-<构建编号>）'
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 发布 GitHub Release 需要写权限
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive # 拉取子模块
+
+      # 与 Android Studio 自带的 JetBrains Runtime 21 保持一致
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'jetbrains'
+          java-version: '21'
+        env:
+          # jetbrains 安装器通过 GitHub API 查询版本，带上 token 避免被限流
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须准备好 Node + pnpm
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      # gradle 的 buildWebUi 任务只跑 build 不跑 install，需在此提前安装依赖
+      - name: Install web-ui dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      # 签名密钥已硬编码在 app/build.gradle.kts 中（app/testkey_untrusted.jks），无需任何 Secret
+      - name: Build release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      # 确认产物确实用你的钥匙签过名（未签名会在此步直接失败）
+      - name: Verify APK signature
+        run: |
+          APKSIGNER=$(ls "${ANDROID_HOME}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          for apk in app/build/outputs/apk/release/*.apk; do
+            echo ">>> $apk"
+            if [ -n "$APKSIGNER" ]; then
+              "$APKSIGNER" verify --print-certs "$apk"
+            else
+              keytool -printcert -jarfile "$apk"
+            fi
+          done
+
+      # 构建产物随 workflow 一起下载，不需要发布 Release
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rikkahub-release-${{ github.run_number }}
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      # 只有手动勾选 publish_release 时才发布 Release
+      - name: Publish GitHub Release
+        if: ${{ inputs.publish_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || format('build-{0}', github.run_number) }}
+          name: Build #${{ github.run_number }}
+          prerelease: true
+          body: |
+            手动构建（commit `${{ github.sha }}`）
+
+            > ⚠️ 自建版本，可能不稳定，仅供测试。
+          files: app/build/outputs/apk/release/*.apk
