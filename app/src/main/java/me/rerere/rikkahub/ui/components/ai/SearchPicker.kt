@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -94,7 +95,7 @@ private val modeShapes = SearchMode.entries.map { it.shape() }
  * 搜索入口按钮。
  *
  * @param label 传入时在图标右侧显示文字，用于输入栏的功能栏 chip；为 null（默认）时保持原来的纯图标样式。
- *   带 label 时尺寸跟其它 chip 保持一致（20dp 图标 + labelMedium 文字）。
+ *   带 label 时整块高度撑到 48dp（内容垂直居中），这样图标+文字看着还是小巧的，点击区却是完整的一格。
  */
 @Composable
 fun SearchPickerButton(
@@ -108,24 +109,27 @@ fun SearchPickerButton(
 ) {
     var showSearchPicker by remember { mutableStateOf(false) }
     val currentService = settings.searchServices.getOrNull(settings.searchServiceSelected)
+    val asChip = label != null
 
     ToggleSurface(
-        modifier = modifier,
+        modifier = modifier.then(if (asChip) Modifier.height(48.dp) else Modifier),
         checked = enableSearch || model?.tools?.contains(BuiltInTools.Search) == true,
         onClick = {
             showSearchPicker = true
         }
     ) {
         Row(
-            modifier = Modifier.padding(
-                horizontal = if (label != null) 6.dp else 8.dp,
-                vertical = if (label != null) 6.dp else 8.dp,
-            ),
+            modifier = Modifier
+                .then(if (asChip) Modifier.fillMaxHeight() else Modifier)
+                .padding(
+                    horizontal = if (asChip) 6.dp else 8.dp,
+                    vertical = if (asChip) 0.dp else 8.dp,
+                ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (label != null) 4.dp else 8.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (asChip) 4.dp else 8.dp)
         ) {
             Box(
-                modifier = Modifier.size(if (label != null) 20.dp else 24.dp),
+                modifier = Modifier.size(if (asChip) 20.dp else 24.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (model?.tools?.contains(BuiltInTools.Search) == true) {
