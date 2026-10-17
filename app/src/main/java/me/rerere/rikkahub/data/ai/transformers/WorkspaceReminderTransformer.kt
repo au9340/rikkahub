@@ -198,26 +198,25 @@ private fun buildLocalShellPrompt(
 /**
  * Termux 工作区的提示词。
  *
- * 命令通过 RUN_COMMAND 在 Termux 进程里执行, 所以 PATH/PREFIX/LD_PRELOAD 都是 Termux 自己的,
- * 能直接用 pkg/apt、python、git 等; 但工作目录是 Termux 的 HOME, 与 app 工作区目录不是同一个文件系统。
+ * 命令由 Termux 的 bash 直接执行, 环境变量 (PREFIX/PATH/LD_PRELOAD 等) 由 runner 注入,
+ * 所以 pkg/python/git 等都能用; 但工作目录是 Termux 的 HOME, 与 app 工作区目录不是同一个文件系统。
  */
 private fun buildTermuxShellPrompt(
     workspace: WorkspaceEntity,
     cwd: String? = null,
 ): String = buildString {
     appendLine("<workspace>")
-    appendLine("You have access to a persistent workspace named \"${workspace.name}\" whose shell commands run inside the Termux app.")
-    appendLine("- `workspace_shell` sends the command to Termux via RUN_COMMAND, so it runs as Termux with `PREFIX=/data/data/com.termux/files/usr`, `PATH=$PREFIX/bin`, `HOME=/data/data/com.termux/files/home` and termux-exec's `LD_PRELOAD` already set.")
-    appendLine("- Bash, `pkg install`, python, git, node and friends are available inside Termux; install missing tools with `pkg install <name>`.")
-    appendLine("- The shell starts in Termux's HOME, **not** in the workspace files area. `/workspace` does not exist there. To touch workspace files from the shell you must use the file tools instead.")
+    appendLine("You have access to a persistent workspace named \"${workspace.name}\" whose shell uses the Termux bash.")
+    appendLine("- `workspace_shell` runs `/data/data/com.termux/files/usr/bin/bash -lc <command>` with `PREFIX=/data/data/com.termux/files/usr`, `PATH=$PREFIX/bin`, `HOME=/data/data/com.termux/files/home`, `TMPDIR=$PREFIX/tmp`, `SHELL=$PREFIX/bin/bash`, `TERM=xterm-256color`, `LANG=en_US.UTF-8`, `COLORTERM=truecolor` and termux-exec's `LD_PRELOAD`.")
+    appendLine("- Bash, `pkg install`, python, git, node and friends are available; install missing tools with `pkg install <name>`.")
+    appendLine("- The shell starts in Termux's HOME, **not** in the workspace files area. `/workspace` does not exist there.")
     appendLine("- `workspace_read_file`, `workspace_write_file` and `workspace_edit_file` use `/workspace/...` paths and read the app's workspace directory, which is a different filesystem from Termux's HOME.")
-    appendLine("- Each command starts a fresh Termux session, so keep state on disk rather than in shell variables. Termux may take a few seconds to start the first time.")
-    appendLine("- Output is truncated to roughly 100 KB by Termux; write large results to a file and read them back in chunks.")
+    appendLine("- Each command runs in a fresh bash, so keep state on disk rather than in shell variables.")
     appendLine("- Never read or modify the RikkaHub app's private data (configuration, preferences, databases).")
     appendLine("- Available tools:")
     appendLine("  - `workspace_read_file`: read workspace file contents.")
     appendLine("  - `workspace_write_file` / `workspace_edit_file`: create or edit workspace files.")
-    appendLine("  - `workspace_shell`: run commands in Termux.")
+    appendLine("  - `workspace_shell`: run commands with the Termux bash.")
     if (!cwd.isNullOrBlank()) {
         appendLine("- Workspace-relative path requested by the user: `$cwd`.")
     }
