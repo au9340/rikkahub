@@ -16,10 +16,12 @@ import me.rerere.workspace.RootfsInstaller
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.WorkspaceShellMode
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
 import me.rerere.workspace.setWorkspaceLocalShell
-import me.rerere.workspace.workspaceUsesLocalShell
+import me.rerere.workspace.setWorkspaceShellMode
+import me.rerere.workspace.workspaceShellMode
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -47,10 +49,10 @@ class WorkspaceRepository(
                 continue
             }
             val statusName = workspace.shellStatus
-            // 本地 Shell 工作区本来就没有 Rootfs, 不能按 Rootfs 缺失降级; 状态被写坏时恢复为 READY
-            if (workspaceUsesLocalShell(manager.filesDir(workspace.root))) {
+            // 本地 Shell / Termux 工作区本来就没有 Rootfs, 不能按 Rootfs 缺失降级; 状态被写坏时恢复为 READY
+            if (workspaceShellMode(manager.filesDir(workspace.root)) != WorkspaceShellMode.ROOTFS) {
                 if (statusName != WorkspaceShellStatus.READY.name) {
-                    Log.w(TAG, "Local shell workspace is not ready, restoring: id=${workspace.id}")
+                    Log.w(TAG, "Non-rootfs workspace is not ready, restoring: id=${workspace.id}")
                     updateShellState(workspace.id, WorkspaceShellStatus.READY.name)
                 }
                 continue
@@ -113,26 +115,34 @@ class WorkspaceRepository(
     /**
      * 切换工作区的 Shell 实现。
      *
-     * true: 本地 Shell, 不依赖 Rootfs, 直接使用宿主 /system/bin/sh;
-     * false: 回到 proot Rootfs, 没装 Rootfs 时状态回到 DISABLED。
+     * ROOTFS: proot + Rootfs, 未安装时状态回到 DISABLED;
+     * LOCAL: 宿主 /system/bin/sh;
+     * TERMUX: 通过 RUN_COMMAND 在 Termux 里执行。
      */
-    suspend fun setLocalShell(id: String, enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
-        val workspace = dao.getById(id) ?: return@withContext false
-        manager.ensureWorkspace(workspace.root)
-        setWorkspaceLocalShell(manager.filesDir(workspace.root), enabled)
-        val status = when {
-            enabled -> WorkspaceShellStatus.READY
-            manager.hasRootfs(workspace.root) -> WorkspaceShellStatus.READY
-            else -> WorkspaceShellStatus.DISABLED
+    suspend fun setShellMode(id: String, mode: WorkspaceShellMode): Boolean =
+        withContext(Dispatchers.IO) {
+            val workspace = dao.getById(id) ?: return@withContext false
+            manager.ensureWorkspace(workspace.root)
+            setWorkspaceShellMode(manager.filesDir(workspace.root), mode)
+            val status = when {
+                mode != WorkspaceShellMode.ROOTFS -> WorkspaceShellStatus.READY
+                manager.hasRootfs(workspace.root) -> WorkspaceShellStatus.READY
+                else -> WorkspaceShellStatus.DISABLED
+            }
+            updateShellState(id, status.name)
+            true
         }
-        updateShellState(id, status.name)
-        true
+
+    /** 兼容旧调用: true = 本地 Shell, false = 回到 Rootfs */
+    suspend fun setLocalShell(id: String, enabled: Boolean): Boolean =
+        setShellMode(id, if (enabled) WorkspaceShellMode.LOCAL else WorkspaceShellMode.ROOTFS)
+
+    suspend fun shellMode(id: String): WorkspaceShellMode = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: return@withContext WorkspaceShellMode.ROOTFS
+        workspaceShellMode(manager.filesDir(workspace.root))
     }
 
-    suspend fun isLocalShell(id: String): Boolean = withContext(Dispatchers.IO) {
-        val workspace = dao.getById(id) ?: return@withContext false
-        workspaceUsesLocalShell(manager.filesDir(workspace.root))
-    }
+    suspend fun isLocalShell(id: String): Boolean = shellMode(id) == WorkspaceShellMode.LOCAL
 
     /** 名字是否已被其他 workspace 占用（trim 后精确匹配，排除 [excludeId] 自身） */
     suspend fun isNameTaken(name: String, excludeId: String?): Boolean {
@@ -162,8 +172,8 @@ class WorkspaceRepository(
         onProgress: (RootfsInstallProgress) -> Unit = {},
     ): Boolean {
         val workspace = dao.getById(id) ?: return false
-        // 装 Rootfs 意味着切回 proot, 先清掉本地 Shell 标记, 否则命令依旧走宿主 shell
-        setWorkspaceLocalShell(manager.filesDir(workspace.root), false)
+        // 装 Rootfs 意味着切回 proot, 先清掉本地 Shell / Termux 标记
+        setWorkspaceShellMode(manager.filesDir(workspace.root), WorkspaceShellMode.ROOTFS)
         updateShellState(workspace, WorkspaceShellStatus.INSTALLING.name)
         try {
             // runInterruptible 让协程取消转成线程中断, 打断 install 内阻塞的下载/解压循环

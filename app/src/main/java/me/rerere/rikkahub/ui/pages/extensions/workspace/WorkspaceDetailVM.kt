@@ -24,6 +24,7 @@ import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceCommandResult
+import me.rerere.workspace.WorkspaceShellMode
 import me.rerere.workspace.WorkspaceStorageArea
 
 class WorkspaceDetailVM(
@@ -268,6 +269,21 @@ class WorkspaceDetailVM(
         }
     }
 
+    fun setShellMode(mode: WorkspaceShellMode) {
+        viewModelScope.launch {
+            try {
+                terminalSessionManager.closeWorkspace(state.value.workspace?.root ?: return@launch)
+                repository.setShellMode(id, mode)
+                loadWorkspace()
+                refresh()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _settingsError.value = error.message.orEmpty()
+            }
+        }
+    }
+
     fun setToolApproval(toolName: String, needsApproval: Boolean) {
         viewModelScope.launch {
             val workspace = state.value.workspace ?: return@launch
@@ -350,13 +366,15 @@ class WorkspaceDetailVM(
     private fun loadWorkspace() {
         viewModelScope.launch {
             val workspace = repository.getById(id)
-            _state.update { it.copy(workspace = workspace) }
+            val mode = repository.shellMode(id)
+            _state.update { it.copy(workspace = workspace, shellMode = mode) }
         }
     }
 }
 
 data class WorkspaceDetailState(
     val workspace: WorkspaceEntity? = null,
+    val shellMode: WorkspaceShellMode = WorkspaceShellMode.ROOTFS,
     val area: WorkspaceStorageArea = WorkspaceStorageArea.FILES,
     val path: String = "",
     val entries: List<WorkspaceFileEntry> = emptyList(),
