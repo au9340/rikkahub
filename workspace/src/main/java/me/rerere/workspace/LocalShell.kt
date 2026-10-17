@@ -2,25 +2,38 @@ package me.rerere.workspace
 
 import java.io.File
 
-/**
- * 本地 Shell 标记文件。
- *
- * 存在于某个 workspace 根目录时, 该工作区不依赖 Rootfs, 直接使用宿主的 /system/bin/sh。
- * 用文件而不是数据库字段保存, 这样切换模式不需要 Room migration, 也不会因为
- * 备份/恢复顺序不同导致状态不一致。
- */
+/** 本地 Shell 标记: 存在时使用宿主 /system/bin/sh, 不依赖 Rootfs */
 const val LOCAL_SHELL_MARKER = ".local_shell"
 
-/** [filesDir] 是 workspace 下的 files 目录, 标记文件放在它的上一级 */
+/** Termux 标记: 存在时通过 RUN_COMMAND 在 Termux 里执行命令 */
+const val TERMUX_SHELL_MARKER = ".termux_shell"
+
+enum class WorkspaceShellMode { ROOTFS, LOCAL, TERMUX }
+
+/** [filesDir] 是 workspace 下的 files 目录, 标记文件在它的上一级 */
 fun workspaceUsesLocalShell(filesDir: File): Boolean =
     File(filesDir.parentFile, LOCAL_SHELL_MARKER).exists()
 
-fun setWorkspaceLocalShell(filesDir: File, enabled: Boolean) {
-    val marker = File(filesDir.parentFile, LOCAL_SHELL_MARKER)
-    if (enabled) {
-        filesDir.parentFile?.mkdirs()
-        marker.writeText("1")
-    } else if (marker.exists()) {
-        marker.delete()
+fun workspaceUsesTermux(filesDir: File): Boolean =
+    File(filesDir.parentFile, TERMUX_SHELL_MARKER).exists()
+
+fun workspaceShellMode(filesDir: File): WorkspaceShellMode = when {
+    workspaceUsesTermux(filesDir) -> WorkspaceShellMode.TERMUX
+    workspaceUsesLocalShell(filesDir) -> WorkspaceShellMode.LOCAL
+    else -> WorkspaceShellMode.ROOTFS
+}
+
+fun setWorkspaceShellMode(filesDir: File, mode: WorkspaceShellMode) {
+    val parent = filesDir.parentFile
+    parent?.mkdirs()
+    File(parent, LOCAL_SHELL_MARKER).let { marker ->
+        if (mode == WorkspaceShellMode.LOCAL) marker.writeText("1") else marker.delete()
     }
+    File(parent, TERMUX_SHELL_MARKER).let { marker ->
+        if (mode == WorkspaceShellMode.TERMUX) marker.writeText("1") else marker.delete()
+    }
+}
+
+fun setWorkspaceLocalShell(filesDir: File, enabled: Boolean) {
+    setWorkspaceShellMode(filesDir, if (enabled) WorkspaceShellMode.LOCAL else WorkspaceShellMode.ROOTFS)
 }

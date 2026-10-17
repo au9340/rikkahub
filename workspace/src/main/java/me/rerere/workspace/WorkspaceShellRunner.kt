@@ -24,20 +24,26 @@ data class WorkspaceShellContext(
 )
 
 /**
- * 按工作区类型分发命令执行。
- *
- * 带本地 Shell 标记的工作区使用 [HostShellRunner] (宿主 /system/bin/sh),
- * 其余工作区仍然走 proot rootfs。
+ * 按工作区标记分发命令执行:
+ * - [WorkspaceShellMode.TERMUX]: 通过 RUN_COMMAND 桥接到 Termux
+ * - [WorkspaceShellMode.LOCAL]: 宿主 /system/bin/sh
+ * - [WorkspaceShellMode.ROOTFS]: proot rootfs
  */
 class RoutingShellRunner(
     private val prootRunner: WorkspaceShellRunner,
     private val hostRunner: WorkspaceShellRunner,
+    private val termuxRunner: WorkspaceShellRunner? = null,
 ) : WorkspaceShellRunner {
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult =
-        if (workspaceUsesLocalShell(context.filesDir)) {
-            hostRunner.execute(context)
-        } else {
-            prootRunner.execute(context)
+        when (workspaceShellMode(context.filesDir)) {
+            WorkspaceShellMode.TERMUX -> termuxRunner?.execute(context) ?: WorkspaceCommandResult(
+                exitCode = 127,
+                stdout = "",
+                stderr = "Termux shell is not available",
+            )
+
+            WorkspaceShellMode.LOCAL -> hostRunner.execute(context)
+            WorkspaceShellMode.ROOTFS -> prootRunner.execute(context)
         }
 }
 

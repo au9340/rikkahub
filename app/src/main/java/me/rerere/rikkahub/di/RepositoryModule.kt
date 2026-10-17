@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.MediaCreationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.workspace.TermuxShellRunner
 import me.rerere.workspace.HostShellRunner
 import me.rerere.workspace.ProotShellRunner
 import me.rerere.workspace.RootfsInstaller
@@ -54,12 +55,13 @@ val repositoryModule = module {
         val context: Context = get()
         WorkspaceManager(
             baseDir = File(context.filesDir, "workspaces"),
-            // 同一个 manager 服务所有工作区: 带本地 Shell 标记的走宿主 /system/bin/sh, 其余走 proot
+            // 同一个 manager 服务所有工作区: 按工作区标记选择 proot / 宿主 sh / Termux 桥
             shellRunner = RoutingShellRunner(
                 prootRunner = ProotShellRunner(
                     nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
                 ),
                 hostRunner = HostShellRunner(),
+                termuxRunner = TermuxShellRunner(context),
             ),
             // 同一份挂载表既用于 PRoot 的 -b 参数, 也用于文件工具的路径解析, 避免两处漂移
             bindMounts = listOf(
