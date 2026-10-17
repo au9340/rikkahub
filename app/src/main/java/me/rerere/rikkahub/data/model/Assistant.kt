@@ -242,7 +242,7 @@ fun PromptInjection.RegexInjection.isTriggered(context: String): Boolean {
  * 从消息列表中提取用于匹配的上下文文本
  *
  * @param messages 消息列表
- * @param scanDepth 扫描深度
+ * @param scanDepth 扫描深度（最近N条消息）
  * @return 拼接的文本内容
  */
 fun extractContextForMatching(
