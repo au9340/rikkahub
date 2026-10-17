@@ -5,9 +5,6 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.CAMERA" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
-  <!-- 工作区 Termux 模式: 通过 RUN_COMMAND 在 Termux 环境里执行命令。
-       装完应用后还需在系统设置里手动授予「在 Termux 环境中运行命令」 -->
-  <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
   <uses-permission
     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
     android:maxSdkVersion="28" />
@@ -39,7 +36,6 @@
     android:required="false" />
 
   <queries>
-    <package android:name="com.termux" />
     <intent>
       <action android:name="android.intent.action.TTS_SERVICE" />
     </intent>

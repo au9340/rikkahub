@@ -55,13 +55,13 @@ val repositoryModule = module {
         val context: Context = get()
         WorkspaceManager(
             baseDir = File(context.filesDir, "workspaces"),
-            // 同一个 manager 服务所有工作区: 按工作区标记选择 proot / 宿主 sh / Termux 桥
+            // 同一个 manager 服务所有工作区: 按工作区标记选择 proot / 宿主 sh / Termux
             shellRunner = RoutingShellRunner(
                 prootRunner = ProotShellRunner(
                     nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
                 ),
                 hostRunner = HostShellRunner(),
-                termuxRunner = TermuxShellRunner(context),
+                termuxRunner = TermuxShellRunner(),
             ),
             // 同一份挂载表既用于 PRoot 的 -b 参数, 也用于文件工具的路径解析, 避免两处漂移
             bindMounts = listOf(
