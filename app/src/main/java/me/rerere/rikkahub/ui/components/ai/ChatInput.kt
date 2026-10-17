@@ -339,6 +339,7 @@ fun ChatInput(
                                 onUpdateSearchService = onUpdateSearchService,
                                 onOpenMcp = { showMcpSheet = true },
                                 onOpenFiles = onMoreClick,
+                                onOpenMore = onMoreClick,
                             )
                         }
                     }
@@ -477,7 +478,7 @@ fun ChatInput(
     )
 }
 
-// 功能栏：自下往上第二行，一行四个：模型 / 搜索 / MCP / 文件（文件 = 原来的加号面板）
+// 功能栏：自下往上第二行，模型 / 搜索 / MCP / 文件 / 更多
 @Composable
 private fun InputFunctionBar(
     modelListState: ModelListState,
@@ -488,6 +489,7 @@ private fun InputFunctionBar(
     onUpdateSearchService: (Int) -> Unit,
     onOpenMcp: () -> Unit,
     onOpenFiles: () -> Unit,
+    onOpenMore: () -> Unit,
 ) {
     val currentModelId = modelListState.currentModel?.modelId
     Row(
@@ -547,6 +549,18 @@ private fun InputFunctionBar(
         ) {
             Icon(
                 imageVector = HugeIcons.Files02,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        // 更多：官方输入框下方那个加号（more_options），打开同一个附件/工作区/MCP/扩展/压缩面板
+        InputFunctionChip(
+            label = "更多",
+            onClick = onOpenMore,
+        ) {
+            Icon(
+                imageVector = HugeIcons.Add01,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )
