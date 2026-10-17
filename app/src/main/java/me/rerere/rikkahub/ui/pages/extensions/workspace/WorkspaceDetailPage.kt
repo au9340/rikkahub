@@ -94,6 +94,7 @@ import me.rerere.ui.components.RikkaConfirmDialog
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
 import me.rerere.workspace.WorkspaceFileEntry
+import me.rerere.workspace.WorkspaceShellMode
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
 import org.koin.androidx.compose.koinViewModel
@@ -169,7 +170,9 @@ fun WorkspaceDetailPage(id: String) {
                     IconButton(onClick = { vm.refresh() }) {
                         Icon(HugeIcons.Refresh01, contentDescription = null)
                     }
-                    if (state.workspace?.shellStatus != WorkspaceShellStatus.DISABLED.name) {
+                    if (state.workspace?.shellStatus != WorkspaceShellStatus.DISABLED.name &&
+                        state.shellMode != WorkspaceShellMode.TERMUX
+                    ) {
                         IconButton(onClick = { navController.navigate(Screen.WorkspaceTerminal(id)) }) {
                             Icon(HugeIcons.ComputerTerminal01, contentDescription = null)
                         }
@@ -205,8 +208,10 @@ fun WorkspaceDetailPage(id: String) {
             when (page) {
                 0 -> WorkspaceBasicPage(
                     workspace = state.workspace,
+                    shellMode = state.shellMode,
                     installProgress = installProgress,
                     onInstallRootfs = { showInstallDialog = true },
+                    onShellModeChange = vm::setShellMode,
                     onToolApprovalChange = vm::setToolApproval,
                     onShellCompatibilityModeChange = vm::setShellCompatibilityMode,
                 )
@@ -363,8 +368,10 @@ fun WorkspaceDetailPage(id: String) {
 @Composable
 private fun WorkspaceBasicPage(
     workspace: WorkspaceEntity?,
+    shellMode: WorkspaceShellMode,
     installProgress: RootfsInstallProgress?,
     onInstallRootfs: () -> Unit,
+    onShellModeChange: (WorkspaceShellMode) -> Unit,
     onToolApprovalChange: (String, Boolean) -> Unit,
     onShellCompatibilityModeChange: (Boolean) -> Unit,
 ) {
@@ -401,58 +408,111 @@ private fun WorkspaceBasicPage(
 
         item {
             CardGroup(
-                title = { Text(stringResource(R.string.workspace_detail_enable_shell)) },
+                title = { Text("Shell 模式") },
             ) {
                 item(
-                    headlineContent = {
-                        Text(stringResource(R.string.workspace_detail_enable_shell_desc))
-                    },
+                    headlineContent = { Text("命令在哪里执行") },
                     supportingContent = {
                         Column(
                             modifier = Modifier.padding(top = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Button(
-                                onClick = onInstallRootfs,
-                                enabled = workspace != null && !installing,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Icon(HugeIcons.Bash, contentDescription = null)
-                                Text(
-                                    text = installButtonText,
-                                    modifier = Modifier.padding(start = 8.dp),
-                                )
+                            val modes = listOf(
+                                WorkspaceShellMode.ROOTFS to "Rootfs",
+                                WorkspaceShellMode.LOCAL to "本地",
+                                WorkspaceShellMode.TERMUX to "Termux",
+                            )
+                            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                                modes.forEachIndexed { index, (mode, label) ->
+                                    SegmentedButton(
+                                        selected = shellMode == mode,
+                                        onClick = { onShellModeChange(mode) },
+                                        shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                                    ) {
+                                        Text(label)
+                                    }
+                                }
                             }
-                            installProgress?.let { RootfsProgress(it) }
+                            Text(
+                                text = when (shellMode) {
+                                    WorkspaceShellMode.ROOTFS ->
+                                        "在手机内运行 proot Linux，需要安装 Rootfs，支持 apt。"
+
+                                    WorkspaceShellMode.LOCAL ->
+                                        "直接使用 Android 的 /system/bin/sh（toybox），无需 Rootfs，没有包管理器。"
+
+                                    WorkspaceShellMode.TERMUX ->
+                                        "通过 RUN_COMMAND 在 Termux 里执行命令，用 Termux 的 PATH / LD_PRELOAD 等环境。" +
+                                            "需要：安装 Termux、在 ~/.termux/termux.properties 里设 allow-external-apps=true、" +
+                                            "并在系统设置里给 RikkaHub 授予「在 Termux 环境中运行命令」。"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     },
                 )
             }
         }
 
-        item {
-            CardGroup(
-                title = {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(stringResource(R.string.workspace_detail_compatibility_mode))
-                        Text(
-                            text = stringResource(R.string.workspace_detail_compatibility_mode_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-            ) {
-                item(
-                    headlineContent = { Text(stringResource(R.string.workspace_detail_compatibility_mode)) },
-                    trailingContent = {
-                        Switch(
-                            checked = workspace?.shellCompatibilityMode ?: false,
-                            onCheckedChange = onShellCompatibilityModeChange,
-                            enabled = workspace != null,
-                        )
+        if (shellMode == WorkspaceShellMode.ROOTFS) {
+            item {
+                CardGroup(
+                    title = { Text(stringResource(R.string.workspace_detail_enable_shell)) },
+                ) {
+                    item(
+                        headlineContent = {
+                            Text(stringResource(R.string.workspace_detail_enable_shell_desc))
+                        },
+                        supportingContent = {
+                            Column(
+                                modifier = Modifier.padding(top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Button(
+                                    onClick = onInstallRootfs,
+                                    enabled = workspace != null && !installing,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(HugeIcons.Bash, contentDescription = null)
+                                    Text(
+                                        text = installButtonText,
+                                        modifier = Modifier.padding(start = 8.dp),
+                                    )
+                                }
+                                installProgress?.let { RootfsProgress(it) }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        if (shellMode == WorkspaceShellMode.ROOTFS) {
+            item {
+                CardGroup(
+                    title = {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.workspace_detail_compatibility_mode))
+                            Text(
+                                text = stringResource(R.string.workspace_detail_compatibility_mode_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     },
-                )
+                ) {
+                    item(
+                        headlineContent = { Text(stringResource(R.string.workspace_detail_compatibility_mode)) },
+                        trailingContent = {
+                            Switch(
+                                checked = workspace?.shellCompatibilityMode ?: false,
+                                onCheckedChange = onShellCompatibilityModeChange,
+                                enabled = workspace != null,
+                            )
+                        },
+                    )
+                }
             }
         }
 
