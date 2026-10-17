@@ -259,7 +259,7 @@ fun extractContextForMatching(
  *
  * @param injections 所有注入规则
  * @param context 上下文文本
- * @return 被触发的注入列表（按优先级降序排列）
+ * @return 被触发的注入列表，按优先级降序排列
  */
 fun getTriggeredInjections(
     injections: List<PromptInjection.RegexInjection>,
