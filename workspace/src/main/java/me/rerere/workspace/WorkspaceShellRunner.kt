@@ -23,17 +23,52 @@ data class WorkspaceShellContext(
     val shellCompatibilityMode: Boolean = false,
 )
 
+/**
+ * 按工作区类型分发命令执行。
+ *
+ * 带本地 Shell 标记的工作区使用 [HostShellRunner] (宿主 /system/bin/sh),
+ * 其余工作区仍然走 proot rootfs。
+ */
+class RoutingShellRunner(
+    private val prootRunner: WorkspaceShellRunner,
+    private val hostRunner: WorkspaceShellRunner,
+) : WorkspaceShellRunner {
+    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult =
+        if (workspaceUsesLocalShell(context.filesDir)) {
+            hostRunner.execute(context)
+        } else {
+            prootRunner.execute(context)
+        }
+}
+
 class HostShellRunner : WorkspaceShellRunner {
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
-        val process = ProcessBuilder(defaultShell(), "-c", context.command)
+        context.tempDir.mkdirs()
+        val builder = ProcessBuilder(defaultShell(), "-c", context.command)
             .directory(context.workingDir)
             .redirectErrorStream(false)
-            .start()
+        builder.environment().apply {
+            // 宿主 shell 没有 proot 的 env -i, 必须显式给出可写的 HOME 和可用的 PATH;
+            // 否则 mksh 会尝试往只读的 / 写配置并报错。
+            put("HOME", context.filesDir.absolutePath)
+            put("TMPDIR", context.tempDir.absolutePath)
+            put("PATH", HOST_PATH)
+            put("TERM", "xterm-256color")
+            put("LANG", "C.UTF-8")
+            put("LC_ALL", "C.UTF-8")
+            put("PWD", context.workingDir.absolutePath)
+            remove("LD_PRELOAD")
+        }
+        val process = builder.start()
         return process.readResult(context.timeoutMillis, context.stdin)
     }
 
     private fun defaultShell(): String =
         if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
+
+    private companion object {
+        const val HOST_PATH = "/system/bin:/system/xbin:/vendor/bin"
+    }
 }
 
 // 单个流保留的最大字符数, 防止命令疯狂输出导致 OOM 或撑爆 LLM 上下文
