@@ -7,6 +7,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.workspace.WorkspaceShellMode
 import me.rerere.workspace.WorkspaceShellStatus
 import java.io.ByteArrayOutputStream
 import java.nio.file.Paths
@@ -16,8 +17,7 @@ import java.nio.file.Paths
  *
  * 当助手绑定了一个 shell 已就绪的 workspace 时, 在系统提示词中追加一段引导,
  * 让模型了解 workspace 环境与 workspace_* 工具的使用方式。
- * 提示中包含 Rootfs 实际使用的 shell 与发行版, 避免模型默认按 bash / apt 来写命令。
- * 本地 Shell 工作区没有 Rootfs, 单独给一套提示以避免模型使用 /workspace 绝对路径或 apt。
+ * 三种 Shell 模式 (proot / 本地 / Termux) 各自一套提示, 避免模型把 /workspace 或 apt 当成通用的。
  * 同时读取 ~/.agents、/workspace 和会话当前目录中的 AGENTS.md 作为工作区指令。
  */
 class WorkspaceReminderTransformer(
@@ -32,15 +32,20 @@ class WorkspaceReminderTransformer(
         // 与 ChatToolFactory.createWorkspaceToolsIfReady 保持一致: 仅在 shell 就绪时注入
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
 
-        val prompt = if (workspaceRepository.isLocalShell(workspaceId)) {
-            buildLocalShellPrompt(workspace = workspace, cwd = ctx.workspaceCwd)
-        } else {
-            buildWorkspacePrompt(
-                workspace = workspace,
-                shell = workspaceRepository.rootfsShell(workspaceId),
-                distro = readDistroName(workspaceId),
-                cwd = ctx.workspaceCwd,
-            ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
+        val prompt = when (workspaceRepository.shellMode(workspaceId)) {
+            WorkspaceShellMode.TERMUX ->
+                buildTermuxShellPrompt(workspace = workspace, cwd = ctx.workspaceCwd)
+
+            WorkspaceShellMode.LOCAL ->
+                buildLocalShellPrompt(workspace = workspace, cwd = ctx.workspaceCwd)
+
+            WorkspaceShellMode.ROOTFS ->
+                buildWorkspacePrompt(
+                    workspace = workspace,
+                    shell = workspaceRepository.rootfsShell(workspaceId),
+                    distro = readDistroName(workspaceId),
+                    cwd = ctx.workspaceCwd,
+                ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
         }
 
         // 追加到第一条 system 消息; 若不存在则插入一条
@@ -186,6 +191,35 @@ private fun buildLocalShellPrompt(
     appendLine("- Prefer `workspace_edit_file` for targeted edits instead of rewriting whole files.")
     if (!cwd.isNullOrBlank()) {
         appendLine("- Current working directory: `$cwd`.")
+    }
+    append("</workspace>")
+}
+
+/**
+ * Termux 工作区的提示词。
+ *
+ * 命令通过 RUN_COMMAND 在 Termux 进程里执行, 所以 PATH/PREFIX/LD_PRELOAD 都是 Termux 自己的,
+ * 能直接用 pkg/apt、python、git 等; 但工作目录是 Termux 的 HOME, 与 app 工作区目录不是同一个文件系统。
+ */
+private fun buildTermuxShellPrompt(
+    workspace: WorkspaceEntity,
+    cwd: String? = null,
+): String = buildString {
+    appendLine("<workspace>")
+    appendLine("You have access to a persistent workspace named \"${workspace.name}\" whose shell commands run inside the Termux app.")
+    appendLine("- `workspace_shell` sends the command to Termux via RUN_COMMAND, so it runs as Termux with `PREFIX=/data/data/com.termux/files/usr`, `PATH=$PREFIX/bin`, `HOME=/data/data/com.termux/files/home` and termux-exec's `LD_PRELOAD` already set.")
+    appendLine("- Bash, `pkg install`, python, git, node and friends are available inside Termux; install missing tools with `pkg install <name>`.")
+    appendLine("- The shell starts in Termux's HOME, **not** in the workspace files area. `/workspace` does not exist there. To touch workspace files from the shell you must use the file tools instead.")
+    appendLine("- `workspace_read_file`, `workspace_write_file` and `workspace_edit_file` use `/workspace/...` paths and read the app's workspace directory, which is a different filesystem from Termux's HOME.")
+    appendLine("- Each command starts a fresh Termux session, so keep state on disk rather than in shell variables. Termux may take a few seconds to start the first time.")
+    appendLine("- Output is truncated to roughly 100 KB by Termux; write large results to a file and read them back in chunks.")
+    appendLine("- Never read or modify the RikkaHub app's private data (configuration, preferences, databases).")
+    appendLine("- Available tools:")
+    appendLine("  - `workspace_read_file`: read workspace file contents.")
+    appendLine("  - `workspace_write_file` / `workspace_edit_file`: create or edit workspace files.")
+    appendLine("  - `workspace_shell`: run commands in Termux.")
+    if (!cwd.isNullOrBlank()) {
+        appendLine("- Workspace-relative path requested by the user: `$cwd`.")
     }
     append("</workspace>")
 }
