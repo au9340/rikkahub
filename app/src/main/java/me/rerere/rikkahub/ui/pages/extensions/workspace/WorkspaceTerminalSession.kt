@@ -19,6 +19,7 @@ import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.workspace.RootfsPatchOptions
 import me.rerere.workspace.RootfsPatcher
 import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.workspaceUsesLocalShell
 import java.io.File
 
 internal fun createWorkspaceTerminalSession(
@@ -30,8 +31,32 @@ internal fun createWorkspaceTerminalSession(
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
     val filesDir = File(workspaceDir, "files")
-    val linuxDir = File(workspaceDir, "linux")
     val tempDir = File(workspaceDir, "tmp")
+
+    // 本地 Shell: 不依赖 Rootfs, 直接起宿主的 /system/bin/sh (Termux 的 TerminalSession 会 forkpty)
+    if (workspaceUsesLocalShell(filesDir)) {
+        filesDir.mkdirs()
+        tempDir.mkdirs()
+        val env = arrayOf(
+            "HOME=${filesDir.absolutePath}",
+            "TMPDIR=${tempDir.absolutePath}",
+            "PATH=/system/bin:/system/xbin:/vendor/bin",
+            "TERM=xterm-256color",
+            "LANG=C.UTF-8",
+        )
+        return TerminalSession(
+            "/system/bin/sh",
+            filesDir.absolutePath,
+            emptyArray(),
+            env,
+            2_000,
+            client,
+        ).apply {
+            mSessionName = root
+        }
+    }
+
+    val linuxDir = File(workspaceDir, "linux")
     val skillsDir = File(appContext.filesDir, FileFolders.SKILLS).apply { mkdirs() }
     val builtinSkillsDir = File(appContext.filesDir, FileFolders.BUILTIN_SKILLS).apply { mkdirs() }
     val nativeLibraryDir = File(appContext.applicationInfo.nativeLibraryDir)
@@ -98,9 +123,11 @@ internal fun createWorkspaceTerminalSession(
 internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
-    val linuxDir = File(workspaceDir, "linux")
     File(workspaceDir, "files").mkdirs()
     File(workspaceDir, "tmp").mkdirs()
+    // 本地 Shell 工作区没有 Rootfs, 也不需要写 resolv.conf 等 guest 系统文件
+    if (workspaceUsesLocalShell(File(workspaceDir, "files"))) return
+    val linuxDir = File(workspaceDir, "linux")
     File(appContext.filesDir, FileFolders.SKILLS).mkdirs()
     RootfsPatcher().patch(
         linuxDir,
@@ -109,7 +136,10 @@ internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
 }
 
 internal fun workspaceRootfsReady(context: Context, root: String): Boolean {
-    val linuxDir = File(File(File(context.applicationContext.filesDir, "workspaces"), root), "linux")
+    val workspaceDir = File(File(context.applicationContext.filesDir, "workspaces"), root)
+    // 本地 Shell 工作区只需要 files 目录, 不需要 Rootfs
+    if (workspaceUsesLocalShell(File(workspaceDir, "files"))) return true
+    val linuxDir = File(workspaceDir, "linux")
     return WorkspaceManager.isUsableRootfs(linuxDir)
 }
 

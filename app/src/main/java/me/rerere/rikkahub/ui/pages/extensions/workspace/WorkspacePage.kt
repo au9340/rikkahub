@@ -18,6 +18,7 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -104,9 +105,10 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
             title = stringResource(R.string.workspace_page_create),
             initialName = "",
             existingNames = workspaces.map { it.name.trim() }.toSet(),
+            showLocalShellOption = true,
             onDismiss = { showAddDialog = false },
-            onConfirm = { name ->
-                vm.create(name)
+            onConfirm = { name, localShell ->
+                vm.create(name, localShell)
                 showAddDialog = false
             },
         )
@@ -118,7 +120,7 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
             initialName = workspace.name,
             existingNames = workspaces.filter { it.id != workspace.id }.map { it.name.trim() }.toSet(),
             onDismiss = { editTarget = null },
-            onConfirm = { name ->
+            onConfirm = { name, _ ->
                 vm.rename(workspace, name)
                 editTarget = null
             },
@@ -240,10 +242,12 @@ private fun EditWorkspaceDialog(
     title: String,
     initialName: String,
     existingNames: Set<String>,
+    showLocalShellOption: Boolean = false,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+    onConfirm: (String, Boolean) -> Unit,
 ) {
     var name by rememberSaveable(initialName) { mutableStateOf(initialName) }
+    var localShell by rememberSaveable(initialName) { mutableStateOf(false) }
     val trimmedName = name.trim()
     val isDuplicate = trimmedName.isNotEmpty() && trimmedName in existingNames
 
@@ -251,21 +255,48 @@ private fun EditWorkspaceDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.workspace_page_name)) },
-                singleLine = true,
-                isError = isDuplicate,
-                supportingText = if (isDuplicate) {
-                    { Text(stringResource(R.string.workspace_page_name_duplicate)) }
-                } else null,
-            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.workspace_page_name)) },
+                    singleLine = true,
+                    isError = isDuplicate,
+                    supportingText = if (isDuplicate) {
+                        { Text(stringResource(R.string.workspace_page_name_duplicate)) }
+                    } else null,
+                )
+                if (showLocalShellOption) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "本地 Shell",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = "不安装 Rootfs，直接使用 Android 的 /system/bin/sh（toybox，无 apt）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = localShell,
+                            onCheckedChange = { localShell = it },
+                        )
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(trimmedName) },
+                onClick = { onConfirm(trimmedName, localShell) },
                 enabled = name.isNotBlank() && !isDuplicate,
             ) {
                 Text(stringResource(R.string.common_save))
