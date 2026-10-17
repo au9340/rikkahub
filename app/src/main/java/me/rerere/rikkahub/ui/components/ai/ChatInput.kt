@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.components.ai
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -44,6 +46,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
@@ -73,9 +76,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -116,6 +119,7 @@ import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Files02
 import me.rerere.hugeicons.stroke.Fullscreen
 import me.rerere.hugeicons.stroke.McpServer
+import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.BackgroundEffectType
@@ -331,6 +335,7 @@ fun ChatInput(
                         // 这里留出的 8dp 是功能栏与输入框之间的视觉留白，也铺在不透明底色之内
                         Column(modifier = Modifier.padding(bottom = 8.dp)) {
                             InputFunctionBar(
+                                state = state,
                                 modelListState = modelListState,
                                 settings = settings,
                                 assistant = assistant,
@@ -477,9 +482,10 @@ fun ChatInput(
     )
 }
 
-// 功能栏：自下往上第二行，一行四个：模型 / 搜索 / MCP / 文件（文件 = 原来的加号面板）
+// 功能栏：自下往上第二行，模型 / 搜索 / MCP / 文件 / 更多
 @Composable
 private fun InputFunctionBar(
+    state: ChatInputState,
     modelListState: ModelListState,
     settings: Settings,
     assistant: Assistant,
@@ -490,6 +496,29 @@ private fun InputFunctionBar(
     onOpenFiles: () -> Unit,
 ) {
     val currentModelId = modelListState.currentModel?.modelId
+    val context = LocalContext.current
+    val filesManager: FilesManager = koinInject()
+    var showMore by remember { mutableStateOf(false) }
+
+    // 「更多」里的视频 / 音频：系统选择器按 MIME 过滤，选完直接作为 Video/Audio 附件进输入框
+    val mediaPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        val localUris = filesManager.createChatFilesByContents(uris)
+        val parts = localUris.mapIndexedNotNull { index, localUri ->
+            val mime = filesManager.getFileMimeType(uris.getOrNull(index) ?: localUri)
+            when {
+                mime?.startsWith("video/") == true -> UIMessagePart.Video(url = localUri.toString())
+                mime?.startsWith("audio/") == true -> UIMessagePart.Audio(url = localUri.toString())
+                else -> null
+            }
+        }
+        if (parts.isNotEmpty()) {
+            state.messageContent = state.messageContent + parts
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -550,6 +579,39 @@ private fun InputFunctionBar(
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )
+        }
+
+        // 更多：视频 / 音频（这些入口之前被从文件面板里拿掉了，这里单独收回来）
+        Box {
+            InputFunctionChip(
+                label = "更多",
+                onClick = { showMore = true },
+            ) {
+                Icon(
+                    imageVector = HugeIcons.MoreVertical,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            DropdownMenu(
+                expanded = showMore,
+                onDismissRequest = { showMore = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("视频") },
+                    onClick = {
+                        showMore = false
+                        mediaPicker.launch(arrayOf("video/*"))
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("音频") },
+                    onClick = {
+                        showMore = false
+                        mediaPicker.launch(arrayOf("audio/*"))
+                    },
+                )
+            }
         }
     }
 }
