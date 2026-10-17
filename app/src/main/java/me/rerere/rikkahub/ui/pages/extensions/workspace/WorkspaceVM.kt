@@ -20,9 +20,9 @@ class WorkspaceVM(
     val workspaces = repository.listFlow()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    fun create(name: String) {
+    fun create(name: String, localShell: Boolean = false) {
         viewModelScope.launch {
-            runCatching { repository.create(name) }
+            runCatching { repository.create(name, localShell) }
         }
     }
 

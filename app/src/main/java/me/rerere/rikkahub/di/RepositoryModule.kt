@@ -3,7 +3,7 @@ package me.rerere.rikkahub.di
 import android.content.Context
 import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.files.FilesManager
-import me.rerere.rikkahub.data.files.SkillManager
+import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
@@ -11,9 +11,12 @@ import me.rerere.rikkahub.data.repository.FilesRepository
 import me.rerere.rikkahub.data.repository.GenMediaRepository
 import me.rerere.rikkahub.data.repository.MediaCreationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.TranslationHistoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.workspace.HostShellRunner
 import me.rerere.workspace.ProotShellRunner
 import me.rerere.workspace.RootfsInstaller
+import me.rerere.workspace.RoutingShellRunner
 import me.rerere.workspace.WorkspaceBindMount
 import me.rerere.workspace.WorkspaceManager
 import org.koin.dsl.module
@@ -30,6 +33,10 @@ val repositoryModule = module {
 
     single {
         MemoryRepository(get())
+    }
+
+    single {
+        TranslationHistoryRepository(get())
     }
 
     single {
@@ -52,8 +59,12 @@ val repositoryModule = module {
         val context: Context = get()
         WorkspaceManager(
             baseDir = File(context.filesDir, "workspaces"),
-            shellRunner = ProotShellRunner(
-                nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
+            // 同一个 manager 服务所有工作区: 带本地 Shell 标记的走宿主 /system/bin/sh, 其余走 proot
+            shellRunner = RoutingShellRunner(
+                prootRunner = ProotShellRunner(
+                    nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
+                ),
+                hostRunner = HostShellRunner(),
             ),
             // 同一份挂载表既用于 PRoot 的 -b 参数, 也用于文件工具的路径解析, 避免两处漂移
             bindMounts = listOf(
