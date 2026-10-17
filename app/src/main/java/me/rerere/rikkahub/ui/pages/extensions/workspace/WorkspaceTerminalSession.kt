@@ -20,6 +20,7 @@ import me.rerere.workspace.RootfsPatchOptions
 import me.rerere.workspace.RootfsPatcher
 import me.rerere.workspace.WorkspaceManager
 import me.rerere.workspace.workspaceUsesLocalShell
+import me.rerere.workspace.workspaceUsesTermux
 import java.io.File
 
 internal fun createWorkspaceTerminalSession(
@@ -33,7 +34,35 @@ internal fun createWorkspaceTerminalSession(
     val filesDir = File(workspaceDir, "files")
     val tempDir = File(workspaceDir, "tmp")
 
-    // 本地 Shell: 不依赖 Rootfs, 直接起宿主的 /system/bin/sh (Termux 的 TerminalSession 会 forkpty)
+    // Termux 模式: 与本应用共享 UID, 直接跑 Termux 的 bash (TerminalSession 会 forkpty)
+    if (workspaceUsesTermux(filesDir)) {
+        filesDir.mkdirs()
+        tempDir.mkdirs()
+        File(TERMUX_HOME).mkdirs()
+        val env = arrayOf(
+            "PREFIX=$TERMUX_PREFIX",
+            "LD_PRELOAD=$TERMUX_PREFIX/lib/libtermux-exec-ld-preload.so",
+            "PATH=$TERMUX_PREFIX/bin",
+            "HOME=$TERMUX_HOME",
+            "TMPDIR=$TERMUX_PREFIX/tmp",
+            "SHELL=$TERMUX_PREFIX/bin/bash",
+            "TERM=xterm-256color",
+            "LANG=en_US.UTF-8",
+            "COLORTERM=truecolor",
+        )
+        return TerminalSession(
+            "$TERMUX_PREFIX/bin/bash",
+            TERMUX_HOME,
+            emptyArray<String>(),
+            env,
+            2_000,
+            client,
+        ).apply {
+            mSessionName = root
+        }
+    }
+
+    // 本地 Shell: 不依赖 Rootfs, 直接起宿主的 /system/bin/sh
     if (workspaceUsesLocalShell(filesDir)) {
         filesDir.mkdirs()
         tempDir.mkdirs()
@@ -47,7 +76,7 @@ internal fun createWorkspaceTerminalSession(
         return TerminalSession(
             "/system/bin/sh",
             filesDir.absolutePath,
-            emptyArray(),
+            emptyArray<String>(),
             env,
             2_000,
             client,
@@ -125,7 +154,8 @@ internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
     File(workspaceDir, "files").mkdirs()
     File(workspaceDir, "tmp").mkdirs()
-    // 本地 Shell 工作区没有 Rootfs, 也不需要写 resolv.conf 等 guest 系统文件
+    // Termux / 本地 Shell 工作区没有 Rootfs, 不需要写 resolv.conf 等 guest 系统文件
+    if (workspaceUsesTermux(File(workspaceDir, "files"))) return
     if (workspaceUsesLocalShell(File(workspaceDir, "files"))) return
     val linuxDir = File(workspaceDir, "linux")
     File(appContext.filesDir, FileFolders.SKILLS).mkdirs()
@@ -137,7 +167,8 @@ internal fun prepareWorkspaceTerminalSession(context: Context, root: String) {
 
 internal fun workspaceRootfsReady(context: Context, root: String): Boolean {
     val workspaceDir = File(File(context.applicationContext.filesDir, "workspaces"), root)
-    // 本地 Shell 工作区只需要 files 目录, 不需要 Rootfs
+    // Termux / 本地 Shell 工作区只需要 files 目录, 不需要 Rootfs
+    if (workspaceUsesTermux(File(workspaceDir, "files"))) return true
     if (workspaceUsesLocalShell(File(workspaceDir, "files"))) return true
     val linuxDir = File(workspaceDir, "linux")
     return WorkspaceManager.isUsableRootfs(linuxDir)
@@ -355,6 +386,9 @@ internal class WorkspaceTerminalViewClient(
         Log.e(tag, "Terminal view error", e)
     }
 }
+
+private const val TERMUX_PREFIX = "/data/data/com.termux/files/usr"
+private const val TERMUX_HOME = "/data/data/com.termux/files/home"
 
 private const val WORKSPACE_DIR = "/workspace"
 private const val SKILLS_DIR = "/skills"
