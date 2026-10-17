@@ -419,7 +419,6 @@ private fun WorkspaceBasicPage(
                         ) {
                             val modes = listOf(
                                 WorkspaceShellMode.ROOTFS to "Rootfs",
-                                WorkspaceShellMode.LOCAL to "本地",
                                 WorkspaceShellMode.TERMUX to "Termux",
                             )
                             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -435,16 +434,12 @@ private fun WorkspaceBasicPage(
                             }
                             Text(
                                 text = when (shellMode) {
-                                    WorkspaceShellMode.ROOTFS ->
-                                        "在手机内运行 proot Linux，需要安装 Rootfs，支持 apt。"
-
-                                    WorkspaceShellMode.LOCAL ->
-                                        "直接使用 Android 的 /system/bin/sh（toybox），无需 Rootfs，没有包管理器。"
-
                                     WorkspaceShellMode.TERMUX ->
-                                        "通过 RUN_COMMAND 在 Termux 里执行命令，用 Termux 的 PATH / LD_PRELOAD 等环境。" +
-                                            "需要：安装 Termux、在 ~/.termux/termux.properties 里设 allow-external-apps=true、" +
-                                            "并在系统设置里给 RikkaHub 授予「在 Termux 环境中运行命令」。"
+                                        "直接用 Termux 的 bash 执行命令（与本应用共享 UID），" +
+                                            "自动注入 PREFIX / LD_PRELOAD / PATH / HOME 等环境变量。需要安装 Termux。"
+
+                                    else ->
+                                        "在手机内运行 proot Linux，需要安装 Rootfs，支持 apt。"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
