@@ -17,6 +17,7 @@ import java.nio.file.Paths
  * 当助手绑定了一个 shell 已就绪的 workspace 时, 在系统提示词中追加一段引导,
  * 让模型了解 workspace 环境与 workspace_* 工具的使用方式。
  * 提示中包含 Rootfs 实际使用的 shell 与发行版, 避免模型默认按 bash / apt 来写命令。
+ * 本地 Shell 工作区没有 Rootfs, 单独给一套提示以避免模型使用 /workspace 绝对路径或 apt。
  * 同时读取 ~/.agents、/workspace 和会话当前目录中的 AGENTS.md 作为工作区指令。
  */
 class WorkspaceReminderTransformer(
@@ -31,12 +32,16 @@ class WorkspaceReminderTransformer(
         // 与 ChatToolFactory.createWorkspaceToolsIfReady 保持一致: 仅在 shell 就绪时注入
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
 
-        val prompt = buildWorkspacePrompt(
-            workspace = workspace,
-            shell = workspaceRepository.rootfsShell(workspaceId),
-            distro = readDistroName(workspaceId),
-            cwd = ctx.workspaceCwd,
-        ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
+        val prompt = if (workspaceRepository.isLocalShell(workspaceId)) {
+            buildLocalShellPrompt(workspace = workspace, cwd = ctx.workspaceCwd)
+        } else {
+            buildWorkspacePrompt(
+                workspace = workspace,
+                shell = workspaceRepository.rootfsShell(workspaceId),
+                distro = readDistroName(workspaceId),
+                cwd = ctx.workspaceCwd,
+            ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
+        }
 
         // 追加到第一条 system 消息; 若不存在则插入一条
         val systemIndex = messages.indexOfFirst { it.role == MessageRole.SYSTEM }
@@ -152,6 +157,35 @@ private fun buildWorkspacePrompt(
     appendLine("- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy.")
     if (!cwd.isNullOrBlank()) {
         appendLine("- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands.")
+    }
+    append("</workspace>")
+}
+
+/**
+ * 本地 Shell 工作区的提示词。
+ *
+ * 关键差异: 没有 proot 的 /workspace 挂载、没有包管理器、没有 root、不能访问其他应用数据。
+ * 文件工具仍用 /workspace/... 路径 (由 WorkspaceManager.resolveRootfsPath 映射到 files 目录),
+ * 但 shell 命令里的 /workspace 是真实根目录下的不存在路径, 必须用相对路径或 pwd 得到的绝对路径。
+ */
+private fun buildLocalShellPrompt(
+    workspace: WorkspaceEntity,
+    cwd: String? = null,
+): String = buildString {
+    appendLine("<workspace>")
+    appendLine("You have access to a persistent workspace named \"${workspace.name}\" that runs a native Android shell (no proot, no Linux distribution).")
+    appendLine("- `workspace_shell` runs `/system/bin/sh` as the Android app user and starts in the workspace files area. Use relative paths, or run `pwd` first; `/workspace` does not exist as a real directory in shell commands.")
+    appendLine("- `workspace_read_file`, `workspace_write_file` and `workspace_edit_file` still take `/workspace/...` paths; they map to the same files area the shell starts in.")
+    appendLine("- The shell is toybox-based: common tools such as `ls`, `cat`, `grep`, `sed`, `awk`, `find`, `tar` are available, but there is no `apt`, `apk`, `pip`, `npm` or compiler, and no root.")
+    appendLine("- Only the app's private storage is reachable; other apps' data and `/sdcard` are not accessible.")
+    appendLine("- Never read or modify app configuration, preferences or databases (anything outside the workspace files area).")
+    appendLine("- Available tools:")
+    appendLine("  - `workspace_read_file`: read file contents.")
+    appendLine("  - `workspace_write_file` / `workspace_edit_file`: create files, or make precise edits to existing files.")
+    appendLine("  - `workspace_shell`: run shell commands.")
+    appendLine("- Prefer `workspace_edit_file` for targeted edits instead of rewriting whole files.")
+    if (!cwd.isNullOrBlank()) {
+        appendLine("- Current working directory: `$cwd`.")
     }
     append("</workspace>")
 }
