@@ -75,7 +75,18 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease -PrikkaBuildNumber=${{ github.run_number }}
+          set +e
+          ./gradlew assembleRelease --console=plain -PrikkaBuildNumber=${{ github.run_number }} 2>&1 | tee gradle-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # 把 Kotlin / Gradle 的错误行转成 annotation，便于在 Actions 页面直接看到
+            grep -aE "^e: |error: |FAILURE:|What went wrong|Caused by:|A problem occurred" gradle-build.log \
+              | head -n 40 \
+              | while IFS= read -r line; do
+                  echo "::error title=GradleBuild::${line}"
+                done
+            exit "$status"
+          fi
 
       # 确认产物确实用你的钥匙签过名（未签名会在此步直接失败）
       - name: Verify APK signature
