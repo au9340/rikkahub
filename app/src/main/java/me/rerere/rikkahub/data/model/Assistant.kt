@@ -7,6 +7,8 @@ import me.rerere.ai.provider.CustomBody
 import me.rerere.ai.provider.CustomHeader
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.core.ReasoningLevel
+import me.rerere.rikkahub.data.ai.prompts.DEFAULT_ROOTFS_WORKSPACE_PROMPT
+import me.rerere.rikkahub.data.ai.prompts.DEFAULT_TERMUX_WORKSPACE_PROMPT
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.utils.SimpleCache
 import java.util.concurrent.TimeUnit
@@ -50,6 +52,9 @@ data class Assistant(
     val enableTimeReminder: Boolean = false,            // 时间间隔提醒注入
     val timeReminderIntervalMinutes: Int = 60,          // 时间提醒间隔（分钟，至少 1 分钟）
     val allowConversationSystemPrompt: Boolean = false, // 允许对话单独重写 system prompt
+    // 工作区 Shell 提示词, 模板里的 {{...}} 由 WorkspaceReminderTransformer 渲染; 留空则不注入
+    val rootfsWorkspacePrompt: String = DEFAULT_ROOTFS_WORKSPACE_PROMPT,
+    val termuxWorkspacePrompt: String = DEFAULT_TERMUX_WORKSPACE_PROMPT,
 )
 
 @Serializable
